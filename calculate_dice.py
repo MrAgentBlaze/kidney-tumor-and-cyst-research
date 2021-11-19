@@ -30,7 +30,8 @@ image_seg = reader.Execute()
 image_seg_arr = sitk.GetArrayFromImage(image_seg)
 
 image_seg_kidney = np.zeros(image_seg_arr.shape)
-image_seg_kidney[image_seg_arr==1] = 1 
+image_seg_kidney[image_seg_arr==1] = 1
+image_seg_kidney[image_seg_arr==3] = 1 
 
 image_seg_tumour = np.zeros(image_seg_arr.shape)
 image_seg_tumour[image_seg_arr==2] = 1 
