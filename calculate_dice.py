@@ -3,7 +3,7 @@ import SimpleITK as sitk
 import matplotlib.pyplot as plt
 
 input1 = 'FILE1.nii.gz' # first segmentation (ground truth)
-input2   = 'FILE2.nii.gz' # second segmentation
+input2   = 'FILE2.nii.gz' # second segmentation (output of network)
 
 reader = sitk.ImageFileReader()
 reader.SetImageIO("NiftiImageIO")
@@ -15,7 +15,8 @@ print((image_truth_arr.shape))
 # Assuming input NIfTI files have two masks, with two labels:
 # 1 = kidney segmentation, 2 = tumour segmentation
 image_truth_kidney = np.zeros(image_truth_arr.shape)
-image_truth_kidney[image_truth_arr==1] = 1 
+image_truth_kidney[image_truth_arr==1] = 1
+image_truth_kidney[image_truth_arr==3] = 1 
 
 image_truth_tumour = np.zeros(image_truth_arr.shape)
 image_truth_tumour[image_truth_arr==2] = 1 
@@ -31,7 +32,6 @@ image_seg_arr = sitk.GetArrayFromImage(image_seg)
 
 image_seg_kidney = np.zeros(image_seg_arr.shape)
 image_seg_kidney[image_seg_arr==1] = 1
-image_seg_kidney[image_seg_arr==3] = 1 
 
 image_seg_tumour = np.zeros(image_seg_arr.shape)
 image_seg_tumour[image_seg_arr==2] = 1 
