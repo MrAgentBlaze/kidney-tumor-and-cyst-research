@@ -60,7 +60,7 @@ class SparseLightningModel(pl.LightningModule):
         losses = [0., 0.]
         part_losses = [[], []]
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
-            weight = 1/(2**step)
+            weight = 1/(2**(2*step))
 
             sorted_indices_output = argsort_sparse_tensor(output)
             sorted_indices_target = argsort_sparse_tensor(target)

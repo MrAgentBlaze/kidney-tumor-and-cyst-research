@@ -1,31 +1,10 @@
-import sys
 import os
-import gc
-import time
-import math
-import tqdm
 import torch
-import torch.optim as optim
-import numpy as np
-import matplotlib.pyplot as plt
-import MinkowskiEngine as ME
-import random
 import pytorch_lightning as pl
 from functools import partial
-from scipy.special import expit
-from glob import glob
-from torch.utils.data import Subset, DataLoader
-
 from utils import ini_argparse, get_k_fold_data_loaders, sigmoid_focal_loss, dice_loss
 from dataset import SparseDataset
 from model import MinkUNetConvNeXtV2, SparseLightningModel
-
-module_path = os.path.abspath('..')
-if module_path not in sys.path:
-    sys.path.append(module_path)
-
-from sklearn.metrics import classification_report, confusion_matrix, explained_variance_score, accuracy_score
-from combined_scheduler import CustomLambdaLR, CombinedScheduler
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.loggers.tensorboard import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -33,9 +12,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 # manually specify the GPUs to use
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#device = torch.device('cpu')
 
 parser = ini_argparse()
 args = parser.parse_args([])
@@ -80,9 +56,9 @@ for fold, (train_loader, val_loader) in enumerate(fold_loaders):
                                            args=args)
 
     # Define logger and checkpoint
-    logger = CSVLogger(save_dir=args.save_dir + "/logs", name=args.name + str(fold))
-    tb_logger = TensorBoardLogger(save_dir=args.save_dir + "/tb_logs", name=args.name + str(fold))
-    checkpoint_callback = ModelCheckpoint(dirpath=args.checkpoint_path + "/" + args.checkpoint_name + str(fold),
+    logger = CSVLogger(save_dir=args.save_dir + "/logs", name=args.name + "_{}".format(str(fold)))
+    tb_logger = TensorBoardLogger(save_dir=args.save_dir + "/tb_logs", name=args.name + "_{}".format(str(fold)))
+    checkpoint_callback = ModelCheckpoint(dirpath=args.checkpoint_path + "/" + args.checkpoint_name + "_{}".format(str(fold)),
                                           save_last=True, save_top_k=args.save_top_k, monitor="loss/val_total")
 
     # Log the hyperparameters
