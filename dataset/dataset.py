@@ -53,12 +53,12 @@ class SparseDataset(Dataset):
             [0, 0, -torch.pi/8],  # Min angles for X, Y, Z
             [0, 0,  torch.pi/8]   # Max angles for X, Y, Z
         ])
-        return  random_rotation_saul(coords=coords,
-                                     feats=feats,
-                                     labels=labels,
-                                     angle_limits=angle_limits,
-                                     origin=first_point,
-                                     limits=limits)
+        return random_rotation_saul(coords=coords,
+                                    feats=feats,
+                                    labels=labels,
+                                    angle_limits=angle_limits,
+                                    origin=first_point,
+                                    limits=limits)
         
     @property
     def processed_dir(self):

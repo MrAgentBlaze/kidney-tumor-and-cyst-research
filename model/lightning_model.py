@@ -58,6 +58,7 @@ class SparseLightningModel(pl.LightningModule):
 
     def compute_losses(self, batch_output, batch_target):
         losses = [0., 0.]
+        part_losses = [[], []]
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
             weight = 1/(2**step)
 
@@ -80,14 +81,16 @@ class SparseLightningModel(pl.LightningModule):
 
             # Compute losses
             for i, loss_fn in enumerate(self.loss_fn):
-                curr_loss = loss_fn(sorted_feats_output[:, 0], kidney_tumor_cyst)
-                curr_loss += loss_fn(sorted_feats_output[:, 1], tumor_cyst)
-                curr_loss += loss_fn(sorted_feats_output[:, 2], tumor_only)
+                all_masses_loss = loss_fn(sorted_feats_output[:, 0], kidney_tumor_cyst)
+                tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], tumor_cyst)
+                tumor_only_loss = loss_fn(sorted_feats_output[:, 2], tumor_only)
+                part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
+                curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
                 losses[i] += weight * curr_loss 
-        
+
         total_loss = losses[0] + losses[1]
 
-        return total_loss, losses 
+        return total_loss, losses, part_losses
 
 
     def common_step(self, batch):
@@ -98,22 +101,26 @@ class SparseLightningModel(pl.LightningModule):
         batch_output, batch_target = self.forward(batch_input, batch_target)
 
         # Compute loss
-        loss, (loss1, loss2) = self.compute_losses(batch_output, batch_target)
+        loss, (loss1, loss2), part_losses = self.compute_losses(batch_output, batch_target)
   
         # Retrieve current learning rate
         lr = self.optimizers().param_groups[0]['lr']
 
-        return loss, loss1, loss2, batch_size, lr
+        return loss, loss1, loss2, part_losses, batch_size, lr
 
 
     def training_step(self, batch, batch_idx):
         torch.cuda.empty_cache()
 
-        loss, loss1, loss2, batch_size, lr = self.common_step(batch)
+        loss, loss1, loss2, part_losses, batch_size, lr = self.common_step(batch)
 
         self.log(f"loss/train_total", loss.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
         self.log(f"loss/train1", loss1.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
         self.log(f"loss/train2", loss2.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
+        for i, loss_fn in enumerate(part_losses):
+            for j, step in enumerate(loss_fn):
+                for k, output in enumerate(step):
+                    self.log("loss/train_o{}_l{}_step{}".format(k, i, j), output.item(), batch_size=batch_size, prog_bar=False, sync_dist=True)
         self.log(f"lr", lr, batch_size=batch_size, prog_bar=True, sync_dist=True)
 
         return loss
@@ -122,12 +129,15 @@ class SparseLightningModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         torch.cuda.empty_cache()
 
-        loss, loss1, loss2, batch_size, lr = self.common_step(batch)
+        loss, loss1, loss2, part_losses, batch_size, lr = self.common_step(batch)
 
         self.log(f"loss/val_total", loss.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
         self.log(f"loss/val1", loss1.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
         self.log(f"loss/val2", loss2.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
-
+        for i, loss_fn in enumerate(part_losses):
+            for j, step in enumerate(loss_fn):
+                for k, output in enumerate(step):
+                    self.log("loss/val_o{}_l{}_step{}".format(k, i, j), output.item(), batch_size=batch_size, prog_bar=False, sync_dist=True)
         return loss
 
 

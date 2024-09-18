@@ -41,21 +41,13 @@ class Block(nn.Module):
     
     def forward(self, x):
         input = x
-        #print("0", x.shape, x.F.shape, x.tensor_stride)
         x = self.dwconv(x)
-        #print("1", x.shape, x.F.shape, x.tensor_stride)
         x = self.norm(x)
-        #print("2", x.shape, x.F.shape, x.tensor_stride)
         x = self.pwconv1(x)
-        #print("3", x.shape, x.F.shape, x.tensor_stride)
         x = self.act(x)
-        #print("4", x.shape, x.F.shape, x.tensor_stride)
         x = self.grn(x)
-        #print("5", x.shape, x.F.shape, x.tensor_stride)
         x = self.pwconv2(x)
-        #print("6", x.shape, x.F.shape, x.tensor_stride)
         x = input + self.drop_path(x)
-        #print("7", x.shape, x.F.shape, x.tensor_stride)
         return x
 
 

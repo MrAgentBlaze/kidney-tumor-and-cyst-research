@@ -40,9 +40,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 parser = ini_argparse()
 args = parser.parse_args([])
 
-args.batch_size = 1
-args.num_workers = 0
-
 print("\n- Arguments:")
 for arg, value in vars(args).items():
     print(f"  {arg}: {value}")
@@ -73,7 +70,7 @@ for fold, (train_loader, val_loader) in enumerate(fold_loaders):
     args.warmup_steps = nb_batches * args.warmup_steps // (args.accum_grad_batches * nb_gpus)
 
     # Initialize the model
-    model = MinkUNetConvNeXtV2(in_channels=1, out_channels=3, D=3)
+    model = MinkUNetConvNeXtV2(in_channels=1, out_channels=3, D=3, args=args)
     #print(model)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total trainable params model (total): {}".format(total_params))
