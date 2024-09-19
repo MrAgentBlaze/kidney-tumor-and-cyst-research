@@ -21,7 +21,7 @@ class SparseDataset(Dataset):
         self.train = False
         self.total_events = self.__len__
         self.hu_range = (args.min_hu, args.max_hu)
-        self.source_range = (0, 1)
+        self.source_range = (-1, 1)
         self.training = False
    
 
