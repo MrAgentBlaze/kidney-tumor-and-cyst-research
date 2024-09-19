@@ -33,11 +33,11 @@ def ini_argparse():
     parser.add_argument("-b1", "--beta1", type=float, default=0.9, help="AdamW first beta value")
     parser.add_argument("-b2", "--beta2", type=float, default=0.999, help="AdamW second beta value")
     parser.add_argument("--save_dir", type=str, default="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research", help="Log save directory")
-    parser.add_argument("--name", type=str, default="v1", help="model name")
+    parser.add_argument("--name", type=str, default="v2", help="model name")
     parser.add_argument("--log_every_n_steps", type=int, default=50, help="steps between logs")
     parser.add_argument("--save_top_k", type=int, default=1, help="Save top k checkpoints")
     parser.add_argument("--checkpoint_path", type=str, default="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/checkpoints", help="Checkpoint path")
-    parser.add_argument("--checkpoint_name", type=str, default="v1", help="Checkpoint name")
+    parser.add_argument("--checkpoint_name", type=str, default="v2", help="Checkpoint name")
     parser.add_argument("--load_checkpoint", type=str, default=None, help="Name of the checkpoint to load")
     parser.add_argument('--gpus', nargs='*',  # 'nargs' can be '*' or '+' depending on your needs
                         default=[0],  # Default list

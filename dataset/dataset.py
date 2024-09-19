@@ -33,33 +33,62 @@ class SparseDataset(Dataset):
 
     def _augment(self, coords, feats, labels, height, width, nslices):
         # rotate
-        coords, feats, labels = self._rotate(coords, feats, labels, height, width, nslices)
-        
+        coords = self._rotate(coords, height, width)
+ 
+        # translate
+        coords = self._translate(coords)
+       
+        # drop voxels
+        #coords, feats, labels = self._drop(coords, feats, labels, p=0.1)
+
         # shift feature values
-        feats = self._shift_energy(feats, max_scale_factor=0.1)
+        feats = self._shift_hu(feats, max_scale_factor=0.1)
+
+        # keep within limits
+        coords, feats, labels = self._within_limits(coords, feats, labels, height, width, nslices)
+
         return coords, feats, labels
 
 
-    def _shift_energy(self, feats, max_scale_factor=0.1):
-        shift = 1 - np.random.rand(*feats.shape) * max_scale_factor
-        return feats * shift
-
-
-    def _rotate(self, coords, feats, labels, height, width, nslices):
+    def _rotate(self, coords, height, width):
         """Random rotation along Z axis"""
         first_point = np.array([height//2, width//2,  0])
-        limits = ((0, height), (0, width), (0, nslices))
         angle_limits = torch.tensor([
             [0, 0, -torch.pi/8],  # Min angles for X, Y, Z
             [0, 0,  torch.pi/8]   # Max angles for X, Y, Z
         ])
         return random_rotation_saul(coords=coords,
-                                    feats=feats,
-                                    labels=labels,
                                     angle_limits=angle_limits,
-                                    origin=first_point,
-                                    limits=limits)
-        
+                                    origin=first_point)
+ 
+
+    def _translate(self, coords):
+        shift_x, shift_y = np.random.randint(low=-10, high=10, size=(2,))
+        coords[:, 0] += shift_x
+        coords[:, 1] += shift_y
+        return coords
+
+
+    def _drop(self, coords, feats, labels, p=0.1):
+        mask = torch.rand(coords.shape[0]) > p
+        #don't drop all coordinates
+        if mask.sum() == 0:
+            return coords, feats
+        return coords[mask], feats[mask], labels[mask]
+
+
+    def _shift_hu(self, feats, max_scale_factor=0.1):
+        shift = 1 - np.random.rand(*feats.shape) * max_scale_factor
+        return feats * shift
+
+
+    def _within_limits(self, coords, feats, labels, height, width, nslices):
+        mask = (coords[:, 0] >= 0) & (coords[:, 0] < height) & \
+           (coords[:, 1] >= 0) & (coords[:, 1] < width) & \
+           (coords[:, 2] >= 0) & (coords[:, 2] < nslices)
+        return coords[mask], feats[mask], labels[mask]
+
+       
     @property
     def processed_dir(self):
         return f'{self.root}'
@@ -108,10 +137,15 @@ class SparseDataset(Dataset):
         # Extract data fields
         c = data['c'].copy()   # contiguous
         x = np.interp(data['x'].ravel(), self.hu_range, self.source_range).reshape(data['x'].shape)
-        y = data['y']
+        y = data['y']  # 0: background, 1: kidney, 2: tumor, 3: cyst
         height = int(data['height'])
         width = int(data['width'])
         nslices = int(data['nslices'])
+
+        # Rename labels (tumor==2 should be exclusive than cyst==3 for the later labels)
+        mask_tumor, mask_cyst = y == 2, y == 3
+        y[mask_tumor] = 3
+        y[mask_cyst] = 2
 
         # Random rotate if training
         if self.training:

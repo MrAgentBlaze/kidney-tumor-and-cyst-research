@@ -77,7 +77,7 @@ class SparseLightningModel(pl.LightningModule):
             # Retrieve independent targets
             kidney_tumor_cyst = (sorted_feats_target > 0).float()
             tumor_cyst = (sorted_feats_target > 1).float()
-            tumor_only = (sorted_feats_target == 2).float() 
+            tumor_only = (sorted_feats_target == 3).float() 
 
             # Compute losses
             for i, loss_fn in enumerate(self.loss_fn):

@@ -378,12 +378,9 @@ def random_quaternions(
 
 def random_rotation_saul(
     coords, 
-    feats,
-    labels,
     angle_limits: torch.Tensor, 
     origin: torch.Tensor, 
     convention: str = "XYZ",
-    limits: tuple = ((0, 192), (0, 64), (0, 192)),
 ) -> torch.Tensor:
     """
     Rotates the input tensor `coords` around a specific point `origin` with random angles,
@@ -425,16 +422,7 @@ def random_rotation_saul(
     # Translate the rotated coordinates back to the original frame
     rotated_coords = rotated_coords + origin
 
-    mask = (rotated_coords[:, 0] >= limits[0][0]) & (rotated_coords[:, 0] < limits[0][1]) & \
-           (rotated_coords[:, 1] >= limits[1][0]) & (rotated_coords[:, 1] < limits[1][1]) & \
-           (rotated_coords[:, 2] >= limits[2][0]) & (rotated_coords[:, 2] < limits[2][1])
-    
-    # Filter the coordinates using the mask
-    filtered_coords = rotated_coords[mask]
-    filtered_feats = feats[mask]
-    filtered_labels = labels[mask]
- 
-    return filtered_coords, filtered_feats, filtered_labels
+    return rotated_coords
 
 
 def random_rotations(
