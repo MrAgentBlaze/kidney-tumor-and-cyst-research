@@ -198,7 +198,7 @@ class MinkUNetConvNeXtV2(nn.Module):
         )
 
         """ Max pool just for generating downsampled labels """        
-        self.max_pool = ME.MinkowskiMaxPooling(kernel_size=3, stride=2, dimension=3)
+        self.max_pool = ME.MinkowskiMaxPooling(kernel_size=2, stride=2, dimension=3)
 
 
     def forward(self, x, y):
