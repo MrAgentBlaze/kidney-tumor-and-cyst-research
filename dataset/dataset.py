@@ -116,11 +116,11 @@ class SparseDataset(Dataset):
             )
 
             def max_pool(features, shape, dtype):
-                pooled = np.zeros(shape, dtype=dtype)
+                pooled = np.full(shape, fill_value=features.min(), dtype=dtype)
                 np.maximum.at(pooled, inverse_indices, features)
                 return pooled
 
-            # Apply avg pooling if x is not None
+            # Apply max pooling if x is not None
             quant_x = max_pool(x, (len(quant_c), x.shape[1]), x.dtype)
 
             # Apply max pooling for y
@@ -157,7 +157,7 @@ class SparseDataset(Dataset):
         # Convert to torch tensors
         c = c.float()
         x = torch.FloatTensor(x)
-        y = torch.FloatTensor(y)   
+        y = torch.FloatTensor(y)
  
         # Create the return dictionary
         result = {
