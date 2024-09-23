@@ -83,6 +83,8 @@ def main():
             max_epochs=args.epochs,
             callbacks=[checkpoint_callback],
             accelerator="gpu",
+            devices=gpus,
+            strategy="ddp" if nb_gpus > 1 else None,
             logger=[logger, tb_logger],
             log_every_n_steps=args.log_every_n_steps,
             deterministic=True,
@@ -90,7 +92,9 @@ def main():
         )
 
         # Train and validate the model for this fold
-        trainer.fit(lightning_model, train_loader, val_loader)
+        trainer.fit(model=lightning_model,
+                    train_dataloaders=train_loader,
+                    val_dataloaders=val_loader)
 
 
 if __name__ == "__main__":
