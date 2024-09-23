@@ -6,6 +6,7 @@ from glob import glob
 from torch.utils.data import Dataset
 from utils import random_rotation_saul
 
+
 def natural_sort(l): 
     convert = lambda text: int(text) if text.isdigit() else text.lower()
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
@@ -15,8 +16,7 @@ def natural_sort(l):
 class SparseDataset(Dataset):
     def __init__(self, args):
         '''Initialiser for SparseEventProtoDUNE class'''
-        
-        self.root = args.dataset_path.format(args.dataset_name, args.min_hu, args.max_hu)
+        self.root = args.dataset_path.format(args.dataset_name, int(args.min_hu), int(args.max_hu))
         self.data_files = self.processed_file_names
         self.train = False
         self.total_events = self.__len__
@@ -42,7 +42,7 @@ class SparseDataset(Dataset):
         #coords, feats, labels = self._drop(coords, feats, labels, p=0.1)
 
         # shift feature values
-        feats = self._shift_hu(feats, max_scale_factor=0.1)
+        feats = self._shift_hu_gaussian(feats, std_dev=0.05)
 
         # keep within limits
         coords, feats, labels = self._within_limits(coords, feats, labels, height, width, nslices)
@@ -57,6 +57,9 @@ class SparseDataset(Dataset):
             [0, 0, -torch.pi/8],  # Min angles for X, Y, Z
             [0, 0,  torch.pi/8]   # Max angles for X, Y, Z
         ])
+        if (angle_limits==0).all():
+            # no rotation at all
+            return coords
         return random_rotation_saul(coords=coords,
                                     angle_limits=angle_limits,
                                     origin=first_point)
@@ -70,15 +73,20 @@ class SparseDataset(Dataset):
 
 
     def _drop(self, coords, feats, labels, p=0.1):
-        mask = torch.rand(coords.shape[0]) > p
+        mask = np.random.rand(coords.shape[0]) > p
         #don't drop all coordinates
         if mask.sum() == 0:
             return coords, feats
         return coords[mask], feats[mask], labels[mask]
 
 
-    def _shift_hu(self, feats, max_scale_factor=0.1):
+    def _shift_hu_uniform(self, feats, max_scale_factor=0.1):
         shift = 1 - np.random.rand(*feats.shape) * max_scale_factor
+        return feats * shift
+
+
+    def _shift_hu_gaussian(self, feats, std_dev=0.1):
+        shift = 1 - np.random.randn(*feats.shape) * std_dev
         return feats * shift
 
 
@@ -107,27 +115,67 @@ class SparseDataset(Dataset):
     
     def __getitem__(self, idx):
         #print("idx: {}".format(idx))
-        def quantize(c, x, y, quantization_size=1):
-            quant_c, unique_indices, inverse_indices = ME.utils.sparse_quantize(
-                coordinates=c,
-                return_index=True,
-                return_inverse=True,
-                quantization_size=quantization_size,
-            )
+ 
+        def trilinear_interpolation(voxels, feats, labels):
+            """
+            Perform vectorized trilinear interpolation on the rotated voxel coordinates
+            and distribute the original features to surrounding voxels.
 
-            def max_pool(features, shape, dtype):
-                pooled = np.full(shape, fill_value=features.min(), dtype=dtype)
-                np.maximum.at(pooled, inverse_indices, features)
-                return pooled
+            Parameters:
+            - voxels: an (N, 3) array of rotated (non-integer) voxel coordinates.
+            - features: an (N, 1) array of features corresponding to the original voxels.
+            - labels: an (N, 1) array of labels corresponding to the original voxels.
+            Returns:
+            - voxel_coords: a (M, 3) array of voxel coordinates (integer values).
+            - aggregated_features: a (M,) array of corresponding interpolated feature values.
+            - aggregated_labels: a (M,) array of corresponding interpolated label values.
+            """
+            offset = -1000 - self.hu_range[0]  # offset using min possible H.U. value (air)
+            features = feats - offset
 
-            # Apply max pooling if x is not None
-            quant_x = max_pool(x, (len(quant_c), x.shape[1]), x.dtype)
+            lower_voxel_corners = np.floor(voxels).astype(int)  # Integer part (x0, y0, z0)
+            fractional_part = voxels - lower_voxel_corners  # Fractional part (distances from lower corner)
 
-            # Apply max pooling for y
-            quant_y = max_pool(y, (len(quant_c), y.shape[1]), y.dtype)
+            # Compute the weights for the 8 corners based on the fractional distances
+            offsets = np.array([[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0]])
+            xd, yd, zd = fractional_part.T
+            weights = np.array([
+                (1 - xd) * (1 - yd),  # (x0, y0)
+                (1 - xd) * yd,        # (x0, y1)
+                xd * (1 - yd),        # (x1, y0)
+                xd * yd               # (x1, y1)
+            ]).T  # Shape: (N, 4)
 
-            return quant_c, quant_x, quant_y
+            # Distribute original features to the surrounding corners using the weights
+            weighted_features = features * weights  # Shape: (N, 4)
+            voxel_coords = lower_voxel_corners[:, np.newaxis, :] + offsets  # Shape: (N, 4, 3)
+            voxel_coords = voxel_coords.reshape(-1, 3)  # Shape: (N*4, 3)
+            features = weighted_features.flatten()  # Shape: (N*4,)
+            labels = np.tile(labels, 4).flatten()
+            weights = weights.flatten() 
 
+            # Aggregate contributions to each voxel using unique voxel coordinates
+            unique_coords, idx = np.unique(voxel_coords, axis=0, return_inverse=True)
+            aggregated_features = np.bincount(idx, weights=features, minlength=len(unique_coords))
+            aggregated_labels = np.full(len(unique_coords), -np.inf)
+            np.maximum.at(aggregated_labels, idx, labels)
+            aggregated_weights = np.bincount(idx, weights=weights, minlength=len(unique_coords))
+
+            # Mask out the voxels that aren't sufficiently filled
+            valid_mask = aggregated_weights > 0.5  # only > half-filled voxels are kept
+            unique_coords = unique_coords[valid_mask]
+            aggregated_features = aggregated_features[valid_mask] / aggregated_weights[valid_mask]
+            aggregated_labels = aggregated_labels[valid_mask]
+           
+            # Add back the offset and filter based on the HU range
+            aggregated_features += offset
+            hu_mask = (aggregated_features >= self.hu_range[0] - 50) & (aggregated_features <= self.hu_range[1] + 50)
+            unique_coords = unique_coords[hu_mask]
+            aggregated_features = aggregated_features[hu_mask].reshape(-1, 1)
+            aggregated_labels = aggregated_labels[hu_mask].reshape(-1, 1).round()
+
+            return unique_coords, aggregated_features, aggregated_labels
+        
         # Load data
         data = np.load(self.data_files[idx])
 
@@ -136,7 +184,7 @@ class SparseDataset(Dataset):
         
         # Extract data fields
         c = data['c'].copy()   # contiguous
-        x = np.interp(data['x'].ravel(), self.hu_range, self.source_range).reshape(data['x'].shape)
+        x = data['x']
         y = data['y']  # 0: background, 1: kidney, 2: tumor, 3: cyst
         height = int(data['height'])
         width = int(data['width'])
@@ -149,15 +197,17 @@ class SparseDataset(Dataset):
 
         # Random rotate if training
         if self.training:
-            c, x, y = self._augment(c, x, y, height, width, nslices)
+            if np.random.rand() > 0.05:
+                # Augment 95% of the times during training
+                c, x, y = self._augment(c, x, y, height, width, nslices)
+                c, x, y = trilinear_interpolation(c, x, y)
 
-        # Quantise duplicated coordinates
-        c, x, y = quantize(c, x, y)
+        x = np.interp(x.ravel(), self.hu_range, self.source_range).reshape(x.shape)
 
         # Convert to torch tensors
-        c = c.float()
-        x = torch.FloatTensor(x)
-        y = torch.FloatTensor(y)
+        c = torch.from_numpy(c)
+        x = torch.from_numpy(x)
+        y = torch.from_numpy(y).float()
  
         # Create the return dictionary
         result = {

@@ -89,11 +89,33 @@ def sigmoid_focal_loss_star(
     return loss
 
 
-def dice_loss(pred, true, eps=1e-6):
-    pred = torch.sigmoid(pred)
-    intersection = torch.sum(true * pred)
-    union = torch.sum(true) + torch.sum(pred)
-    dice = (2.0 * intersection) / (union + eps)
-    return 1.0 - dice  # minimisation problem
-
+def dice_loss(inputs: torch.Tensor,
+              targets: torch.Tensor,
+              eps: float = 1e-6,
+) -> torch.Tensor:
+    """
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+        eps: A smoothing constant to avoid division by zero. 
+    Returns:
+        dice_loss: Dice loss value.
+    """
+    inputs = inputs.float()
+    targets = targets.float()
+    inputs = torch.sigmoid(inputs)
+        
+    inputs_flat = inputs.view(-1)
+    targets_flat = targets.view(-1)
+        
+    intersection = (inputs_flat * targets_flat).sum()
+    union = inputs_flat.sum() + targets_flat.sum()
+        
+    dice_score = (2. * intersection + eps) / (union + eps)
+    dice_loss = 1 - dice_score
+        
+    return dice_loss
 
