@@ -205,8 +205,8 @@ class SparseDataset(Dataset):
         x = np.interp(x.ravel(), self.hu_range, self.source_range).reshape(x.shape)
 
         # Convert to torch tensors
-        c = torch.from_numpy(c)
-        x = torch.from_numpy(x)
+        c = torch.from_numpy(c).float()
+        x = torch.from_numpy(x).float()
         y = torch.from_numpy(y).float()
  
         # Create the return dictionary
