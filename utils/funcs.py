@@ -5,7 +5,7 @@ from torch.utils.data import Subset, DataLoader
 from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 
 
-def get_k_fold_data_loaders(dataset, num_folds=5, batch_size=32, shuffle=True, random_state=None):
+def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
     """
     Splits a dataset into K folds and returns DataLoaders for training and validation sets for each fold.
 
@@ -19,7 +19,7 @@ def get_k_fold_data_loaders(dataset, num_folds=5, batch_size=32, shuffle=True, r
     Returns:
         List of tuples: Each tuple contains (train_loader, val_loader) for a fold.
     """
-    kfold = KFold(n_splits=num_folds, shuffle=shuffle, random_state=random_state)
+    kfold = KFold(n_splits=args.folds, shuffle=shuffle, random_state=random_state)
     data_loaders = []
 
     for train_indices, val_indices in kfold.split(dataset):
@@ -28,8 +28,12 @@ def get_k_fold_data_loaders(dataset, num_folds=5, batch_size=32, shuffle=True, r
         val_subset = Subset(dataset, val_indices)
         
         # Create DataLoaders for the subsets
-        train_loader = DataLoader(train_subset, batch_size=batch_size, collate_fn=collate_sparse_minkowski, shuffle=True)
-        val_loader = DataLoader(val_subset, batch_size=batch_size, collate_fn=collate_sparse_minkowski, shuffle=False)
+        train_loader = DataLoader(train_subset, batch_size=args.batch_size, num_workers=args.num_workers,
+                pin_memory=True, persistent_workers=True if args.num_workers > 0 else False,
+                collate_fn=collate_sparse_minkowski, shuffle=True)
+        val_loader = DataLoader(val_subset, batch_size=args.batch_size, num_workers=args.num_workers,
+                pin_memory=True, persistent_workers=True if args.num_workers > 0 else False,
+                collate_fn=collate_sparse_minkowski, shuffle=False)
         
         # Append the loaders as a tuple to the list
         data_loaders.append((train_loader, val_loader))

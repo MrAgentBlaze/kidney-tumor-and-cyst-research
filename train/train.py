@@ -35,8 +35,7 @@ def main():
 
     # K folds for cross validation
     fold_loaders = get_k_fold_data_loaders(dataset, 
-                                           num_folds=args.folds, 
-                                           batch_size=args.batch_size,
+                                           args=args, 
                                            shuffle=True, 
                                            random_state=42)
 
@@ -80,6 +79,7 @@ def main():
  
         # Initialize PyTorch Lightning trainer
         trainer = pl.Trainer(
+            #num_sanity_val_steps=0,
             max_epochs=args.epochs,
             callbacks=[checkpoint_callback],
             accelerator="gpu",

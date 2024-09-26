@@ -203,6 +203,11 @@ class SparseDataset(Dataset):
                 c, x, y = trilinear_interpolation(c, x, y)
 
         x = np.interp(x.ravel(), self.hu_range, self.source_range).reshape(x.shape)
+        targets = np.zeros(shape=(y.shape[0], 3))
+        targets[:, 0] = y[:, 0] > 0  # kidney_tumor_cyst 
+        targets[:, 1] = y[:, 0] > 1  # tumor_cyst
+        targets[:, 2] = y[:, 0] == 3  # tumor_only
+        y = targets
 
         # Convert to torch tensors
         c = torch.from_numpy(c).float()

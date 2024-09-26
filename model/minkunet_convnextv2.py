@@ -11,6 +11,37 @@ from .utils import (
     MinkowskiDropPath
 )
 
+from MinkowskiEngine import (
+    MinkowskiConvolution,
+    MinkowskiConvolutionTranspose,
+    MinkowskiDepthwiseConvolution,
+    MinkowskiLinear,
+    MinkowskiGELU
+)
+
+
+# Custom weight initialization function
+def _init_weights(m):
+    if isinstance(m, ME.MinkowskiConvolution):
+        nn.init.trunc_normal_(m.kernel, std=.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    if isinstance(m, ME.MinkowskiGenerativeConvolutionTranspose):
+        nn.init.trunc_normal_(m.kernel, std=.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    if isinstance(m, ME.MinkowskiDepthwiseConvolution):
+        nn.init.trunc_normal_(m.kernel, std=.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    if isinstance(m, ME.MinkowskiLinear):
+        nn.init.trunc_normal_(m.linear.weight, std=.02)
+        if m.linear.bias is not None:
+            nn.init.constant_(m.linear.bias, 0)
+    if isinstance(m, nn.LayerNorm):
+        nn.init.constant_(m.bias, 0)
+        nn.init.constant_(m.weight, 1.0)
+
 
 class MinkUNetConvNeXtV2(nn.Module):
     CHANNELS = (8, 16, 32, 64, 128, 256, 512)
@@ -18,247 +49,117 @@ class MinkUNetConvNeXtV2(nn.Module):
 
     def __init__(self, in_channels, out_channels, D=3, args=None):
         nn.Module.__init__(self)
-
+        
         ch = self.CHANNELS
-        self.ds_steps = args.ds_steps
+        #self.ds_steps = args.ds_steps
 
         """Encoder"""
-        
-        # Block 1
-        self.eblock1 = nn.Sequential(
-            Block(dim=in_channels, drop_path=0, D=3),
-            MinkowskiLayerNorm(1, eps=1e-6),
-            ME.MinkowskiConvolution(1, ch[0], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[0], drop_path=0, D=3),
-        )
+        #depths=[3, 3, 9, 3]
+        #dims=[96, 192, 384, 768]     
+        depths=[2, 2, 6, 2]
+        dims=(32, 64, 128, 256)
+        drop_path_rate=0.
 
-        # Block 2
-        self.eblock2 = nn.Sequential(
-            MinkowskiLayerNorm(ch[0], eps=1e-6),
-            ME.MinkowskiConvolution(ch[0], ch[1], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[1], drop_path=0, D=3),
-        )
+        self.downsample_layers = nn.ModuleList()
 
-        # Block 3
-        self.eblock3 = nn.Sequential(
-            MinkowskiLayerNorm(ch[1], eps=1e-6),
-            ME.MinkowskiConvolution(ch[1], ch[2], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[2], drop_path=0, D=3),
-        )
+        stem = nn.Sequential(
+            MinkowskiConvolution(in_channels, dims[0], kernel_size=4, stride=4, dimension=3),
+            MinkowskiLayerNorm(dims[0], eps=1e-6),
+        ) 
+        self.downsample_layers.append(stem)
+        for i in range(3):
+            downsample_layer = nn.Sequential(
+                MinkowskiLayerNorm(dims[i], eps=1e-6),
+                MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=3)
+            )
+            self.downsample_layers.append(downsample_layer)
 
-        # Block 4
-        self.eblock4 = nn.Sequential(
-            MinkowskiLayerNorm(ch[2], eps=1e-6),
-            ME.MinkowskiConvolution(ch[2], ch[3], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[3], drop_path=0, D=3),
-        )
-
-        # Block 5
-        self.eblock5 = nn.Sequential(
-            MinkowskiLayerNorm(ch[3], eps=1e-6),
-            ME.MinkowskiConvolution(ch[3], ch[4], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[4], drop_path=0, D=3),
-        )
-
-        # Block 6
-        self.eblock6 = nn.Sequential(
-            MinkowskiLayerNorm(ch[4], eps=1e-6),
-            ME.MinkowskiConvolution(ch[4], ch[5], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[5], drop_path=0, D=3),
-        )
-
-        # Block 7
-        self.eblock7 = nn.Sequential(
-            MinkowskiLayerNorm(ch[5], eps=1e-6),
-            ME.MinkowskiConvolution(ch[5], ch[6], kernel_size=3, stride=2, bias=True, dimension=3),
-            Block(dim=ch[6], drop_path=0, D=3),
-        )
-        
+        self.stages_enc = nn.ModuleList() # 4 feature resolution stages, each consisting of multiple residual blocks
+        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+        cur = 0
+        for i in range(4):
+            stage = nn.Sequential(
+                *[Block(dim=dims[i], drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
+            )
+            self.stages_enc.append(stage)
+            cur += depths[i]
+            
         """Decoder"""
+        depths=depths[::-1]
+        dims=dims[::-1]
+        decoder_embed_dim=64
         
-        # Block 1
-        self.dblock1 = nn.Sequential(
-            Block(dim=ch[6], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[6], eps=1e-6),
-            ME.MinkowskiConvolutionTranspose(
-                ch[6], ch[6], kernel_size=2, stride=2, bias=True, dimension=3
-            ),
-            Block(dim=ch[6], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[6], eps=1e-6),
-        )
-        # Final 1
-        if self.ds_steps > 6:
-            self.dblock1_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[6], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
+        self.upsample_layers = nn.ModuleList()
+        
+        for i in range(3):
+            upsample_layer = nn.Sequential(
+                MinkowskiLayerNorm(dims[i-1]+dims[i] if i>0 else dims[i], eps=1e-6),
+                MinkowskiConvolutionTranspose(dims[i-1]+dims[i] if i>0 else dims[i], dims[i], kernel_size=2, stride=2, bias=True, dimension=3)
             )
-
-        # Block 2
-        self.dblock2 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[6]+ch[5], ch[5], kernel_size=2, stride=2, bias=True, dimension=3
-            ),
-            Block(dim=ch[5], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[5], eps=1e-6),
+            self.upsample_layers.append(upsample_layer)
+            
+        stem = nn.Sequential(
+            MinkowskiConvolutionTranspose(dims[2]+dims[3], dims[3], kernel_size=4, stride=4, dimension=3),
+            MinkowskiLayerNorm(dims[3], eps=1e-6),
         )
-        # Final 2
-        if self.ds_steps > 5:
-            self.dblock2_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[5], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
+        self.upsample_layers.append(stem)
+
+        self.stages_dec = nn.ModuleList() # 4 feature resolution stages, each consisting of multiple residual blocks
+        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+        cur = 0
+        for i in range(4):
+            stage = nn.Sequential(
+                *[Block(dim=dims[i], drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
             )
-
-       
-        # Block 3
-        self.dblock3 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[5]+ch[4], ch[4], kernel_size=2, stride=2, bias=True, dimension=3
-            ),
-            Block(dim=ch[4], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[4], eps=1e-6),
-        )
-        # Final 3
-        if self.ds_steps > 4:
-            self.dblock3_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[4], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
+            self.stages_dec.append(stage)
+            cur += depths[i]
+            
+        self.cls_layers = nn.ModuleList()
+        for i in range(4):
+            cls_layer = nn.Sequential(
+                MinkowskiConvolution(dims[i], decoder_embed_dim, kernel_size=1, stride=1, dimension=3),
+                Block(dim=decoder_embed_dim, drop_path=0., D=3),
+                MinkowskiConvolution(decoder_embed_dim, out_channels, kernel_size=1, stride=1, dimension=3),
             )
-
-        # Block 4
-        self.dblock4 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[4]+ch[3], ch[3], kernel_size=2, stride=2, bias=True, dimension=3
-            ),
-            Block(dim=ch[3], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[3], eps=1e-6),
-        )
-        # Final 4
-        if self.ds_steps > 3:
-            self.dblock4_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[3], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
-            )
-
-        # Block 5
-        self.dblock5 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[3]+ch[2], ch[2], kernel_size=2, stride=2, bias=True, dimension=3
-            ),   
-            Block(dim=ch[2], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[2], eps=1e-6),
-        )
-        # Final 5
-        if self.ds_steps > 2:
-            self.dblock5_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[2], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
-            )
-
-        # Block 6
-        self.dblock6 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[2]+ch[1], ch[1], kernel_size=2, stride=2, bias=True, dimension=3
-            ),    
-            Block(dim=ch[1], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[1], eps=1e-6),
-        )
-        # Final 6
-        if self.ds_steps > 1:
-            self.dblock6_cls = nn.Sequential(
-                ME.MinkowskiConvolution(
-                    ch[1], out_channels, kernel_size=1, bias=True, dimension=3
-                ),
-                Block(dim=out_channels, drop_path=0, D=3),
-            )
-
-        # Block 7
-        self.dblock7 = nn.Sequential(
-            ME.MinkowskiConvolutionTranspose(
-                ch[1]+ch[0], ch[0], kernel_size=2, stride=2, bias=True, dimension=3
-            ),
-            Block(dim=ch[0], drop_path=0, D=3),
-            MinkowskiLayerNorm(ch[0], eps=1e-6),
-        )
-        # Final 7
-        self.dblock7_cls = nn.Sequential(
-            ME.MinkowskiConvolution(
-                ch[0], out_channels, kernel_size=1, bias=True, dimension=3
-            ),
-            Block(dim=out_channels, drop_path=0, D=3),
-        )
-
+            self.cls_layers.append(cls_layer)
+            
         """ Max pool just for generating downsampled labels """        
-        self.max_pool = ME.MinkowskiMaxPooling(kernel_size=2, stride=2, dimension=3)
+        self.avg_pool2x2 = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3) 
+        self.avg_pool4x4 = ME.MinkowskiAvgPooling(kernel_size=4, stride=4, dimension=3) 
 
+        """ Initialise weights """
+        self.apply(_init_weights)
 
     def forward(self, x, y):
         """ Generate labels for deep supervision """
-        ys = [y.detach()]
-        for i in range(1, self.ds_steps):
-            y = self.max_pool(y)
-            ys.append(y.detach())
-
-        """ Encoder """
-        out_e1 = self.eblock1(x)  # tensor_stride == [2, 2, 2]
-        out_e2 = self.eblock2(out_e1)  # tensor_stride == [4, 4, 4]
-        out_e3 = self.eblock3(out_e2)  # tensor_stride == [8, 8, 8]
-        out_e4 = self.eblock4(out_e3)  # tensor_stride == [16, 16, 16]
-        out_e5 = self.eblock5(out_e4)  # tensor_stride == [32, 32, 32]
-        out_e6 = self.eblock6(out_e5)  # tensor_stride == [64, 64, 64]
-        out_e7 = self.eblock7(out_e6)  # tensor_stride == [128, 128, 128]
-
-        """ Decoder """ 
+        ys = []
+        for i in range(5):
+            if i==0:
+                y_aux = y.detach()
+            elif i==1:
+                y_aux = self.avg_pool4x4(y_aux)
+            else:
+                y_aux = self.avg_pool2x2(y_aux)
+            ys.append(y_aux)
+  
+        """Encoder"""
+        x = self.downsample_layers[0](x)
+        x_enc = []
+        for i in range(4):
+            x = self.downsample_layers[i](x) if i > 0 else x
+            x = self.stages_enc[i](x)
+            x_enc.append(x)
+        x_enc = x_enc[::-1]
+        
+        """Decoder"""
         out_cls = []
-
-        out_d1 = self.dblock1(out_e7)  # tensor_stride == [64, 64, 64]
-        if self.ds_steps > 6:
-            out_cl = self.dblock1_cls(out_d1)
+        for i in range(4):
+            if i > 0:
+                x = ME.cat(x, x_enc[i])
+            x = self.upsample_layers[i](x)
+            x = self.stages_dec[i](x)
+            out_cl = self.cls_layers[i](x)
             out_cls.insert(0, out_cl)
-
-        out_d1e6 = ME.cat(out_d1, out_e6)
-        out_d2 = self.dblock2(out_d1e6)  # tensor_stride == [32, 32, 32]
-        if self.ds_steps > 5:
-            out_cl = self.dblock2_cls(out_d2)
-            out_cls.insert(0, out_cl)
-
-        out_d2e5 = ME.cat(out_d2, out_e5)
-        out_d3 = self.dblock3(out_d2e5)  # tensor_stride == [16, 16, 16]
-        if self.ds_steps > 4:
-            out_cl = self.dblock3_cls(out_d3)
-            out_cls.insert(0, out_cl)
-
-        out_d3e4 = ME.cat(out_d3, out_e4)
-        out_d4 = self.dblock4(out_d3e4)  # tensor_stride == [8, 8, 8]
-        if self.ds_steps > 3:
-            out_cl = self.dblock4_cls(out_d4)
-            out_cls.insert(0, out_cl)
-
-        out_d4e3 = ME.cat(out_d4, out_e3)
-        out_d5 = self.dblock5(out_d4e3)  # tensor_stride == [4, 4, 4]
-        if self.ds_steps > 2:
-            out_cl = self.dblock5_cls(out_d5)
-            out_cls.insert(0, out_cl)
-
-        out_d5e2 = ME.cat(out_d5, out_e2)
-        out_d6 = self.dblock6(out_d5e2)  # tensor_stride == [2, 2, 2]
-        if self.ds_steps > 1:
-            out_cl = self.dblock6_cls(out_d6)
-            out_cls.insert(0, out_cl)
-
-        out_d6e1 = ME.cat(out_d6, out_e1)
-        out_d7 = self.dblock7(out_d6e1)  # tensor_stride == [1, 1, 1]
-        out_cl = self.dblock7_cls(out_d7)
-        out_cls.insert(0, out_cl)
         
         return out_cls, ys
 

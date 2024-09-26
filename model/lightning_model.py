@@ -59,10 +59,12 @@ class SparseLightningModel(pl.LightningModule):
 
     def compute_losses(self, batch_output, batch_target):
         losses = [0. for _ in range(len(self.losses))]
-        part_losses = [[], []]
+        part_losses = [[] for _ in range(len(self.losses))]
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
             weight = 1 / (2 ** step)  # inspired by https://arxiv.org/pdf/2310.04110
-
+            #dense_output = output.dense()[0]
+            #dense_target = target.dense()[0]
+            
             sorted_indices_output = argsort_sparse_tensor(output)
             sorted_indices_target = argsort_sparse_tensor(target)
             
@@ -73,24 +75,46 @@ class SparseLightningModel(pl.LightningModule):
             assert (sorted_coords_output == sorted_coords_target).all(), "Coordinates are still not aligned!"
 
             sorted_feats_output = output.F[sorted_indices_output]
-            sorted_feats_target = target.F[sorted_indices_target].view(-1)
-           
-            # Retrieve independent targets
-            kidney_tumor_cyst = (sorted_feats_target > 0).float()
-            tumor_cyst = (sorted_feats_target > 1).float()
-            tumor_only = (sorted_feats_target == 3).float() 
+            sorted_feats_target = target.F[sorted_indices_target]
 
             # Compute losses
             for i, (loss, loss_fn) in enumerate(zip(self.losses, self.loss_fn)):
-                extra_args1 = {"gamma": 1.0} if loss == "focal" else {}
-                extra_args2 = {"gamma": 2.0} if loss == "focal" else {}
+                extra_args = {"gamma": 2.0} if loss == "focal" else {}
 
-                all_masses_loss = loss_fn(sorted_feats_output[:, 0], kidney_tumor_cyst, **extra_args1)
-                tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], tumor_cyst, **extra_args2)
-                tumor_only_loss = loss_fn(sorted_feats_output[:, 2], tumor_only, **extra_args2)
+                #all_masses_loss = loss_fn(dense_output[:, 0], dense_target[:, 0], **extra_args)
+                #tumor_cyst_loss = loss_fn(dense_output[:, 1], dense_target[:, 1], **extra_args)
+                #tumor_only_loss = loss_fn(dense_output[:, 2], dense_target[:, 2], **extra_args)                 
+                all_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **extra_args)
+                tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **extra_args)
+                tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **extra_args) 
+
                 part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
                 curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
                 losses[i] += weight * curr_loss 
+
+        part_losses = torch.tensor(part_losses)
+        total_loss = sum(losses)
+
+        return total_loss, part_losses
+   
+
+    def compute_losses2(self, batch_output, batch_target):
+        B, C, H, W, D = batch_target.shape
+        batch_output = self.model.unpatchify(batch_output, H, W, D)
+       
+        losses = [0. for _ in range(len(self.losses))]
+        part_losses = [[] for _ in range(len(self.losses))]
+
+        # Compute losses
+        for i, (loss, loss_fn) in enumerate(zip(self.losses, self.loss_fn)):
+            extra_args = {"gamma": 2.0} if loss == "focal" else {}
+            all_masses_loss = loss_fn(batch_output[:, 0], batch_target[:, 0], **extra_args)
+            tumor_cyst_loss = loss_fn(batch_output[:, 1], batch_target[:, 1], **extra_args)
+            tumor_only_loss = loss_fn(batch_output[:, 2], batch_target[:, 2], **extra_args)                 
+
+            part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
+            curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
+            losses[i] += curr_loss 
 
         total_loss = sum(losses)
 
@@ -105,26 +129,39 @@ class SparseLightningModel(pl.LightningModule):
         batch_output, batch_target = self.forward(batch_input, batch_target)
 
         # Compute loss
-        loss, losses, part_losses = self.compute_losses(batch_output, batch_target)
+        loss, part_losses = self.compute_losses(batch_output, batch_target)
   
         # Retrieve current learning rate
         lr = self.optimizers().param_groups[0]['lr']
 
-        return loss, losses, part_losses, batch_size, lr
+        return loss, part_losses, batch_size, lr
 
 
     def training_step(self, batch, batch_idx):
         torch.cuda.empty_cache()
 
-        loss, losses, part_losses, batch_size, lr = self.common_step(batch)
+        loss, part_losses, batch_size, lr = self.common_step(batch)
 
         self.log(f"loss/train_total", loss.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
-        for i, loss_value in enumerate(losses):
-            self.log("loss/train{}".format(i), loss_value.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
-        for i, loss_fn in enumerate(part_losses):
-            for j, step in enumerate(loss_fn):
-                for k, output in enumerate(step):
-                    self.log("loss/train_o{}_l{}_step{}".format(k, i, j), output.item(), batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for i in range(part_losses.shape[0]):  # Loop over N
+            total_sum_over_mk = part_losses[i, :, :].sum().item()  # Sum over M and K for the i-th N
+            self.log(f"loss/train_l{i}", total_sum_over_mk, batch_size=batch_size, prog_bar=True, sync_dist=True)
+
+        for j in range(part_losses.shape[1]):  # Loop over M
+            total_sum_over_nk = part_losses[:, j, :].sum().item()  # Sum over N and K for the j-th M
+            self.log(f"loss/train_step{j}", total_sum_over_nk, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for k in range(part_losses.shape[2]):  # Loop over K
+            total_sum_over_nm = part_losses[:, :, k].sum().item()  # Sum over N and M for the k-th K
+            self.log(f"loss/train_o{k}", total_sum_over_nm, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for i in range(part_losses.shape[0]):
+            for j in range(part_losses.shape[1]):
+                for k in range(part_losses.shape[2]):
+                    output = part_losses[i, j, k].item()
+                    self.log("loss/train_o{}_l{}_step{}".format(k, i, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
+        
         self.log(f"lr", lr, batch_size=batch_size, prog_bar=True, sync_dist=True)
 
         return loss
@@ -133,16 +170,28 @@ class SparseLightningModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         torch.cuda.empty_cache()
 
-        loss, losses, part_losses, batch_size, lr = self.common_step(batch)
+        loss, part_losses, batch_size, lr = self.common_step(batch)
 
         self.log(f"loss/val_total", loss.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
-        for i, loss_value in enumerate(losses):
-            self.log("loss/val{}".format(i), loss_value.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
-        for i, loss_fn in enumerate(part_losses):
-            for j, step in enumerate(loss_fn):
-                for k, output in enumerate(step):
-                    self.log("loss/val_o{}_l{}_step{}".format(k, i, j), output.item(), batch_size=batch_size, prog_bar=False, sync_dist=True)
-        
+
+        for i in range(part_losses.shape[0]):  # Loop over N
+            total_sum_over_mk = part_losses[i, :, :].sum().item()  # Sum over M and K for the i-th N
+            self.log(f"loss/val_l{i}", total_sum_over_mk, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for j in range(part_losses.shape[1]):  # Loop over M
+            total_sum_over_nk = part_losses[:, j, :].sum().item()  # Sum over N and K for the j-th M
+            self.log(f"loss/val_step{j}", total_sum_over_nk, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for k in range(part_losses.shape[2]):  # Loop over K
+            total_sum_over_nm = part_losses[:, :, k].sum().item()  # Sum over N and M for the k-th K
+            self.log(f"loss/val_o{k}", total_sum_over_nm, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
+        for i in range(part_losses.shape[0]):
+            for j in range(part_losses.shape[1]):
+                for k in range(part_losses.shape[2]):
+                    output = part_losses[i, j, k].item()
+                    self.log("loss/val_o{}_l{}_step{}".format(k, i, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
+
         return loss
 
 

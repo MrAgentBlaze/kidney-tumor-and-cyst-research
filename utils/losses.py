@@ -108,14 +108,12 @@ def dice_loss(inputs: torch.Tensor,
     targets = targets.float()
     inputs = torch.sigmoid(inputs)
         
-    inputs_flat = inputs.view(-1)
-    targets_flat = targets.view(-1)
-        
-    intersection = (inputs_flat * targets_flat).sum()
-    union = inputs_flat.sum() + targets_flat.sum()
-        
+    reduce_axis: list[int] = torch.arange(1, len(inputs.shape)).tolist()
+    intersection = torch.sum(targets * inputs, dim=reduce_axis)
+    union = torch.sum(targets, dim=reduce_axis) + torch.sum(inputs, dim=reduce_axis)
+       
     dice_score = (2. * intersection + eps) / (union + eps)
     dice_loss = 1 - dice_score
-        
-    return dice_loss
+
+    return torch.mean(dice_loss)
 
