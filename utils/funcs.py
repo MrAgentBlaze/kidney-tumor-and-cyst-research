@@ -5,6 +5,15 @@ from torch.utils.data import Subset, DataLoader
 from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 
 
+def sparsify(dense_tensor, label_tensor, empty_min = -100, empty_max=200):
+    mask = (dense_tensor >= empty_min) & (dense_tensor <= empty_max)
+    coords = torch.argwhere(mask[0])
+    feats = dense_tensor[mask].unsqueeze(1)
+    labels = label_tensor[mask].unsqueeze(1)
+    
+    return coords, feats, labels
+
+
 def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
     """
     Splits a dataset into K folds and returns DataLoaders for training and validation sets for each fold.
@@ -57,18 +66,18 @@ def collate_sparse_minkowski(batch):
 
 
 def arrange_sparse_minkowski(data, device):
-    return ME.SparseTensor(
+    tensor = ME.SparseTensor(
         features=data['f'],
         coordinates=ME.utils.batched_coordinates(data['c'], dtype=torch.int),
-        #quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE, 
         device=device)
+
+    return tensor
 
 
 def arrange_truth(data, device):
     return ME.SparseTensor(
         features=data['y'],
         coordinates=ME.utils.batched_coordinates(data['c'], dtype=torch.int),
-        #quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE, 
         device=device)
 
 
@@ -150,4 +159,41 @@ class CombinedScheduler(_LRScheduler):
         self.step_num += 1
 
 
+def replace_depthwise_with_channelwise(model):
+    for name, module in model.named_modules():
+        if isinstance(module, ME.MinkowskiDepthwiseConvolution):
+            in_channels = module.in_channels
+            kernel_size = module.kernel_generator.kernel_size
+            stride = module.kernel_generator.kernel_stride
+            dilation = module.kernel_generator.kernel_dilation
+            bias = module.bias is not None
+            dimension = module.dimension
+            
+            # create a new MinkowskiChannelwiseConvolution with the same parameters
+            new_conv = ME.MinkowskiChannelwiseConvolution(
+                in_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                dilation=dilation,
+                bias=bias,
+                dimension=dimension
+            )
+            
+            # copy the weights and bias from old depthwise convolution
+            new_conv.kernel = module.kernel
+            if bias:
+                new_conv.bias = module.bias
+            
+            parent_module, attr_name = _get_parent_module(model, name)
+            setattr(parent_module, attr_name, new_conv)
+    
+    return model
+
+
+def _get_parent_module(model, layer_name):
+    components = layer_name.split('.')
+    parent = model
+    for comp in components[:-1]:
+        parent = getattr(parent, comp)
+    return parent, components[-1]
 

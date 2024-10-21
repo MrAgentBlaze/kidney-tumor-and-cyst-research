@@ -16,8 +16,13 @@ def ini_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true", default=True, help="set if training")
     parser.add_argument("--test", action="store_false", dest="train", help="set if testing")
+    parser.add_argument("--sigmoid", action="store_true", default=True, help="set if sigmoid (binary-class)")
+    parser.add_argument("--softmax", action="store_false", dest="sigmoid", help="set if softmax (multi-class) ")
+    parser.add_argument("--roi", action="store_true", default=False, help="set if ROI")
     parser.add_argument("--dataset_name", type=str, default="large_iso", help="Dataset name (large_iso or small_iso)")
     parser.add_argument("-d", "--dataset_path", type=str, default="/scratch/salonso/sparse-nns/medical_data/data_kits23_{}_{}_{}_good/*", help="Dataset path")
+    parser.add_argument("--contrastive", action="store_true", default=False, help="set if contrastive learning")
+    parser.add_argument("--finetuning", action="store_true", default=False, help="set if fine-tune a pre-trained contrastive model") 
     parser.add_argument("--min_hu", type=float, default=-30, help="Min Hounsfield units")
     parser.add_argument("--max_hu", type=float, default=350, help="Max Hounsfield units")
     parser.add_argument("--ds_steps", type=int, default=4, help="Deep-supervision steps")
@@ -36,6 +41,11 @@ def ini_argparse():
                         default=["focal", "dice"],  # Default list
                         help='List of losses to use (options: "focal", "dice")'
                         )
+    parser.add_argument('--label_weights', nargs='*',  # 'nargs' can be '*' or '+' depending on your needs
+                        default=None,  # Default list
+                        help='label weights for contrastive loss computation'
+                        )
+    parser.add_argument("--chunk_size", type=int, default=512, help="chunk size if contrastive learning")
     parser.add_argument("--save_dir", type=str, default="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research", help="Log save directory")
     parser.add_argument("--name", type=str, default="v1", help="model name")
     parser.add_argument("--log_every_n_steps", type=int, default=50, help="steps between logs")

@@ -11,7 +11,7 @@ import os
 import torch
 import pytorch_lightning as pl
 from functools import partial
-from utils import ini_argparse, get_k_fold_data_loaders, sigmoid_focal_loss, dice_loss
+from utils import CustomFinetuningReversed, ini_argparse, get_k_fold_data_loaders, supervised_pixel_contrastive_loss, ce_loss, focal_loss, dice_loss
 from dataset import SparseDataset
 from model import MinkUNetConvNeXtV2, SparseLightningModel
 from pytorch_lightning.loggers import CSVLogger
@@ -40,14 +40,19 @@ def main():
                                            random_state=42)
 
     # Define loss functions
-    loss_fn = []
-    for loss in args.losses:
-        if loss == "focal":
-            loss_fn.append(partial(sigmoid_focal_loss, reduction="mean"))
-        elif loss == "dice":
-            loss_fn.append(dice_loss)
-        else:
-            raise ValueError("Wrong loss")
+    if args.contrastive and not args.finetuning:
+        loss_fn = supervised_pixel_contrastive_loss
+    else: 
+        loss_fn = []
+        for loss in args.losses:
+            if loss == "ce":
+                loss_fn.append(partial(ce_loss, sigmoid=args.sigmoid, reduction="mean"))
+            elif loss == "focal":
+                loss_fn.append(partial(focal_loss, sigmoid=args.sigmoid, reduction="mean"))
+            elif loss == "dice":
+                loss_fn.append(partial(dice_loss, sigmoid=args.sigmoid, reduction="mean"))
+            else:
+                raise ValueError("Wrong loss")
 
     for fold, (train_loader, val_loader) in enumerate(fold_loaders):
         print(f'Fold {fold + 1}')
@@ -58,7 +63,7 @@ def main():
         args.warmup_steps = nb_batches * args.warmup_steps // (args.accum_grad_batches * nb_gpus)
 
         # Initialize the model
-        model = MinkUNetConvNeXtV2(in_channels=1, out_channels=3, D=3, args=args)
+        model = MinkUNetConvNeXtV2(in_channels=1, out_channels=1 if args.roi else 3, D=3, args=args)
         #print(model)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print("Total trainable params model (total): {}".format(total_params))
@@ -82,6 +87,7 @@ def main():
             #num_sanity_val_steps=0,
             max_epochs=args.epochs,
             callbacks=[checkpoint_callback],
+            precision=16,
             accelerator="gpu",
             devices=gpus,
             strategy="ddp" if nb_gpus > 1 else None,

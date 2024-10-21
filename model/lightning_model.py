@@ -19,6 +19,11 @@ class SparseLightningModel(pl.LightningModule):
         self.betas = (args.beta1, args.beta2)
         self.weight_decay = args.weight_decay
         self.eps = args.eps
+        self.roi = args.roi
+        self.contrastive = args.contrastive
+        self.finetuning = args.finetuning
+        self.chunk_size = args.chunk_size
+        self.label_weights = [float(x) for x in args.label_weights] if args.label_weights is not None else None
 
 
     def on_train_start(self):
@@ -61,7 +66,8 @@ class SparseLightningModel(pl.LightningModule):
         losses = [0. for _ in range(len(self.losses))]
         part_losses = [[] for _ in range(len(self.losses))]
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
-            weight = 1 / (2 ** step)  # inspired by https://arxiv.org/pdf/2310.04110
+            #weight = 1 / (2 ** step)  # inspired by https://arxiv.org/pdf/2310.04110
+            weight = 1 / (2 ** (3 * step))
             #dense_output = output.dense()[0]
             #dense_target = target.dense()[0]
             
@@ -77,19 +83,27 @@ class SparseLightningModel(pl.LightningModule):
             sorted_feats_output = output.F[sorted_indices_output]
             sorted_feats_target = target.F[sorted_indices_target]
 
+            decom_feats_output = output.decomposed_features
+            decom_feats_target = target.decomposed_features
+
             # Compute losses
             for i, (loss, loss_fn) in enumerate(zip(self.losses, self.loss_fn)):
-                extra_args = {"gamma": 2.0} if loss == "focal" else {}
+                extra_args = {}
+                if loss == "focal":
+                    extra_args["gamma"] = 2.0
+                elif loss == "dice":
+                    extra_args["smooth"] = 1.0 if self.training else 1e-6
 
-                #all_masses_loss = loss_fn(dense_output[:, 0], dense_target[:, 0], **extra_args)
-                #tumor_cyst_loss = loss_fn(dense_output[:, 1], dense_target[:, 1], **extra_args)
-                #tumor_only_loss = loss_fn(dense_output[:, 2], dense_target[:, 2], **extra_args)                 
-                all_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **extra_args)
-                tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **extra_args)
-                tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **extra_args) 
-
-                part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
-                curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
+                if self.roi:
+                    all_masses_loss = loss_fn(decom_feats_output, decom_feats_target, **extra_args)
+                    part_losses[i].append([all_masses_loss])
+                    curr_loss = all_masses_loss
+                else:
+                    all_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **extra_args)
+                    tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **extra_args)
+                    tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **extra_args) 
+                    part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
+                    curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
                 losses[i] += weight * curr_loss 
 
         part_losses = torch.tensor(part_losses)
@@ -98,27 +112,24 @@ class SparseLightningModel(pl.LightningModule):
         return total_loss, part_losses
    
 
-    def compute_losses2(self, batch_output, batch_target):
-        B, C, H, W, D = batch_target.shape
-        batch_output = self.model.unpatchify(batch_output, H, W, D)
-       
-        losses = [0. for _ in range(len(self.losses))]
-        part_losses = [[] for _ in range(len(self.losses))]
+    def compute_losses_contrastive(self, batch_output, batch_target):
+        losses = [0.]
+        part_losses = [[]] 
+ 
+        assert (batch_output.coordinates == batch_target.coordinates).all()
+        
+        coords, labels = batch_target.decomposed_coordinates_and_features
+        coords_, feats = batch_output.decomposed_coordinates_and_features
+          
+        curr_loss = self.loss_fn(feats, feats, labels, labels, label_weights=self.label_weights, chunk_size=self.chunk_size)
 
-        # Compute losses
-        for i, (loss, loss_fn) in enumerate(zip(self.losses, self.loss_fn)):
-            extra_args = {"gamma": 2.0} if loss == "focal" else {}
-            all_masses_loss = loss_fn(batch_output[:, 0], batch_target[:, 0], **extra_args)
-            tumor_cyst_loss = loss_fn(batch_output[:, 1], batch_target[:, 1], **extra_args)
-            tumor_only_loss = loss_fn(batch_output[:, 2], batch_target[:, 2], **extra_args)                 
+        part_losses[0].append([curr_loss])
+        losses[0] += curr_loss
 
-            part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
-            curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
-            losses[i] += curr_loss 
-
+        part_losses = torch.tensor(part_losses)
         total_loss = sum(losses)
 
-        return total_loss, losses, part_losses
+        return total_loss, part_losses
 
 
     def common_step(self, batch):
@@ -126,10 +137,13 @@ class SparseLightningModel(pl.LightningModule):
         batch_input, batch_target = self._arrange_batch(batch)
 
         # Forward pass
-        batch_output, batch_target = self.forward(batch_input, batch_target)
-
-        # Compute loss
-        loss, part_losses = self.compute_losses(batch_output, batch_target)
+        if self.contrastive:
+            coords, labels = batch_input.decomposed_coordinates_and_features
+            batch_output, _ = self.forward(batch_input, batch_target)
+            loss, part_losses = self.compute_losses_contrastive(batch_output, batch_target)
+        else:
+            batch_output, batch_target = self.forward(batch_input, batch_target)
+            loss, part_losses = self.compute_losses(batch_output, batch_target)
   
         # Retrieve current learning rate
         lr = self.optimizers().param_groups[0]['lr']

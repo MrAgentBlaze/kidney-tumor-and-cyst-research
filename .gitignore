@@ -1,8 +1,9 @@
 __pycache__/
 .ipynb_checkpoints/
-checkpoints/
-logs/
-tb_logs/
+checkpoint*/
+logs*/
+tb_logs*/
 lightning_logs/
 core
+notebooks/
 *.ipynb
