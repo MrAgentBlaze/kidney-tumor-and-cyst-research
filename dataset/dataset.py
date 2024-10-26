@@ -58,7 +58,7 @@ class SparseDataset(Dataset):
         with open(self.data_files[idx], 'rb') as fd:
             data = pkl.load(fd)
         idx = ''.join(char for char in self.data_files[idx].split("/")[-1] if char.isdigit())
-      
+
         if self.training:
             # augment
             if np.random.rand() > 0.01:
@@ -66,9 +66,9 @@ class SparseDataset(Dataset):
 
         # sparsify
         image, label = data["image"].as_tensor(), data["label"].as_tensor()
-        c, x, y = sparsify(image, label, self.hu_range[0], self.hu_range[1])
+        c, x, y = sparsify(image, label, empty_min=self.hu_range[0], empty_max=self.hu_range[1])
 
-        # rename labels (tumor==2 should be exclusive than cyst==3 for the later labels)
+        # rename labels (tumor==2 should be more exclusive than cyst==3 for the later labels)
         mask_tumor, mask_cyst = y == 2, y == 3
         y[mask_tumor] = 3
         y[mask_cyst] = 2
@@ -84,7 +84,9 @@ class SparseDataset(Dataset):
                 y = y[:, 0].reshape(-1, 1)
 
         # standardise
-        #x = (x - 92.90337) / 62.957798
+        x = (x - 48.10007) / 62.645897
+        #x = (x - self.hu_range[0]) / (self.hu_range[1] - self.hu_range[0])
+        #x = x * (1.0 - 0.01) + 0.01
 
         c = c.float()
         x = x.float()

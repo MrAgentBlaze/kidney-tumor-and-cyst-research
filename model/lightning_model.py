@@ -99,11 +99,20 @@ class SparseLightningModel(pl.LightningModule):
                     part_losses[i].append([all_masses_loss])
                     curr_loss = all_masses_loss
                 else:
-                    all_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **extra_args)
-                    tumor_cyst_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **extra_args)
-                    tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **extra_args) 
-                    part_losses[i].append([all_masses_loss, tumor_cyst_loss, tumor_only_loss])
-                    curr_loss = all_masses_loss + tumor_cyst_loss + tumor_only_loss
+                    kidney_masses_args = extra_args.copy()
+                    masses_args = extra_args.copy()
+                    tumor_only_args = extra_args.copy()
+
+                    if loss == "focal":
+                        kidney_masses_args["alpha"] = 0.9  #0.9669001466296703
+                        masses_args["alpha"] = 0.91  ##0.9912589491525297
+                        tumor_only_args["alpha"] = 0.915  #0.992063786003657
+
+                    kidney_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **kidney_masses_args)
+                    masses_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **masses_args)
+                    tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **tumor_only_args) 
+                    part_losses[i].append([kidney_masses_loss, masses_loss, tumor_only_loss])
+                    curr_loss = kidney_masses_loss + masses_loss + tumor_only_loss
                 losses[i] += weight * curr_loss 
 
         part_losses = torch.tensor(part_losses)

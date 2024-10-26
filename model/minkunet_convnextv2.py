@@ -53,13 +53,9 @@ class MinkUNetConvNeXtV2(nn.Module):
         self.ds_steps = args.ds_steps
 
         """Encoder"""
-        #depths=[3, 3, 9, 3]
-        #dims=[96, 192, 384, 768]     
         depths=[1, 2, 2, 4, 4, 4]
-        #dims=(32, 64, 128, 256)
-        #dims=(48, 96, 192, 384)
         dims = (16, 32, 64, 96, 96, 96)
-        drop_path_rate=0.
+        drop_path_rate = 0.0
 
         assert len(depths) == len(dims)
 
@@ -67,7 +63,7 @@ class MinkUNetConvNeXtV2(nn.Module):
        
         self.encoder_layers = nn.ModuleList()
         self.downsample_layers = nn.ModuleList()
-        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
 
         self.stem = nn.Sequential(
@@ -90,15 +86,17 @@ class MinkUNetConvNeXtV2(nn.Module):
                 self.downsample_layers.append(downsample_layer)
 
         """Decoder"""
-        depths=depths[:-1][::-1]
-        dims=dims[::-1]
-        decoder_embed_dim=32
+        last_enc_depth = depths[-1]
+        #depths = [1, 1, 1, 1, 1]
+        depths = depths[:-1][::-1]
+        dims = dims[::-1]
+        decoder_embed_dim = 32
 
         self.nb_dlayers = len(dims) - 1
 
         self.decoder_layers = nn.ModuleList()
         self.upsample_layers = nn.ModuleList()
-        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+        dp_rates = [x.item() for x in torch.linspace(dp_rates[-last_enc_depth], 0, sum(depths))]
         cur = 0
 
         for i in range(self.nb_dlayers):
@@ -126,15 +124,12 @@ class MinkUNetConvNeXtV2(nn.Module):
         else:
             self.cls_layers = nn.ModuleList()
             for i in range(self.nb_dlayers):
-                cls_layer = nn.Sequential(
-                    MinkowskiConvolution(dims[i+1] + dims[i+1], out_channels, kernel_size=1, stride=1, dimension=3),
-                )
+                cls_layer = MinkowskiConvolution(dims[i+1] + dims[i+1], out_channels, kernel_size=1, stride=1, dimension=3)
                 self.cls_layers.append(cls_layer)
 
         if not self.contrastive:
             """ Pool just for generating downsampled labels """        
             self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3) 
-
 
         """ Initialise weights """
         self.apply(_init_weights)
