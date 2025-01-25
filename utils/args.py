@@ -14,8 +14,10 @@ Parameters
 '''
 def ini_argparse():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--target", type=int, default=-1, help="target label (0, 1, 2) or -1 for all")
     parser.add_argument("--train", action="store_true", default=True, help="set if training")
     parser.add_argument("--test", action="store_false", dest="train", help="set if testing")
+    parser.add_argument("--stage2", action="store_true", default=False, help="set if stage 2")
     parser.add_argument("--sigmoid", action="store_true", default=True, help="set if sigmoid (binary-class)")
     parser.add_argument("--softmax", action="store_false", dest="sigmoid", help="set if softmax (multi-class) ")
     parser.add_argument("--roi", action="store_true", default=False, help="set if ROI")

@@ -16,7 +16,20 @@ from dataset import SparseDataset
 from model import MinkUNetConvNeXtV2, SparseLightningModel
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.loggers.tensorboard import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
+
+#torch.set_float32_matmul_precision('high')
+
+class CustomProgressBar(TQDMProgressBar):
+    def init_train_tqdm(self):
+        bar = super().init_train_tqdm()
+        bar.ascii = True  # Ensure ASCII characters are used
+        return bar
+
+    def init_validation_tqdm(self):
+        bar = super().init_validation_tqdm()
+        bar.ascii = True  # Ensure ASCII characters are used for validation
+        return bar
 
 
 def main():
@@ -55,6 +68,9 @@ def main():
                 raise ValueError("Wrong loss")
 
     for fold, (train_loader, val_loader) in enumerate(fold_loaders):
+        if fold == 0:
+            continue
+
         print(f'Fold {fold + 1}')
     
         # Calculate arguments for scheduler
@@ -63,7 +79,7 @@ def main():
         args.warmup_steps = nb_batches * args.warmup_steps // (args.accum_grad_batches * nb_gpus)
 
         # Initialize the model
-        model = MinkUNetConvNeXtV2(in_channels=1, out_channels=1 if args.roi else 3, D=3, args=args)
+        model = MinkUNetConvNeXtV2(in_channels=1, out_channels=1 if (args.roi or args.target != -1) else 3, D=3, args=args)
         #print(model)
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print("Total trainable params model (total): {}".format(total_params))
@@ -77,6 +93,7 @@ def main():
         tb_logger = TensorBoardLogger(save_dir=args.save_dir + "/tb_logs", name=args.name + "_{}".format(str(fold)))
         checkpoint_callback = ModelCheckpoint(dirpath=args.checkpoint_path + "/" + args.checkpoint_name + "_{}".format(str(fold)),
                                               save_last=True, save_top_k=args.save_top_k, monitor="loss/val_total")
+        progress_bar = CustomProgressBar()
 
         # Log the hyperparameters
         logger.log_hyperparams(vars(args))
@@ -86,7 +103,7 @@ def main():
         trainer = pl.Trainer(
             #num_sanity_val_steps=0,
             max_epochs=args.epochs,
-            callbacks=[checkpoint_callback],
+            callbacks=[checkpoint_callback, progress_bar],
             precision=16,
             accelerator="gpu",
             devices=gpus,
@@ -99,8 +116,9 @@ def main():
 
         # Train and validate the model for this fold
         trainer.fit(model=lightning_model,
-                    train_dataloaders=train_loader,
-                    val_dataloaders=val_loader)
+            train_dataloaders=train_loader,
+            val_dataloaders=val_loader,
+            ckpt_path="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/checkpoints_stage_ind/dice_optuna_1Kepochs_1/last.ckpt" if fold==1 else None)
 
 
 if __name__ == "__main__":

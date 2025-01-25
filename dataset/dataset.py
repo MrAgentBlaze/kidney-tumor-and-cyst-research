@@ -2,7 +2,6 @@ import re
 import numpy as np
 import torch
 import pickle as pkl
-import MinkowskiEngine as ME
 from glob import glob
 from torch.utils.data import Dataset
 from utils import sparsify, augment
@@ -16,8 +15,8 @@ def natural_sort(l):
 
 class SparseDataset(Dataset):
     def __init__(self, args):
-        '''Initialiser for SparseEventProtoDUNE class'''
         self.root = args.dataset_path.format(args.dataset_name)
+        self.stage2 = args.stage2
         self.data_files = self.processed_file_names
         self.train = False
         self.total_events = self.__len__
@@ -26,6 +25,9 @@ class SparseDataset(Dataset):
         self.training = False
         self.contrastive = args.contrastive 
         self.roi = args.roi
+
+        if self.stage2:
+            self.data_files = [(path, int(path.split("_")[-1][:-3])) for path in self.data_files]
 
 
     def set_training_mode(self, training=True):
@@ -41,7 +43,7 @@ class SparseDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return self._natural_sort(set(glob(f'{self.processed_dir}*.pkl')))               
+        return self._natural_sort(set(glob('{0}*.{1}'.format(self.processed_dir, 'pt' if self.stage2 else 'pkl'))))               
    
 
     def _natural_sort(self, l):
@@ -55,9 +57,15 @@ class SparseDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        with open(self.data_files[idx], 'rb') as fd:
-            data = pkl.load(fd)
-        idx = ''.join(char for char in self.data_files[idx].split("/")[-1] if char.isdigit())
+        if self.stage2:
+            path, roi_label = self.data_files[idx]
+            data = torch.load(path)
+        else:
+            path, roi_label = self.data_files[idx], -1
+            with open(path, 'rb') as fd:
+                data = pkl.load(fd)
+
+        idx = ''.join(char for char in path.split("/")[-1] if char.isdigit())
 
         if self.training:
             # augment
@@ -65,8 +73,12 @@ class SparseDataset(Dataset):
                 data = augment(data)
 
         # sparsify
-        image, label = data["image"].as_tensor(), data["label"].as_tensor()
-        c, x, y = sparsify(image, label, empty_min=self.hu_range[0], empty_max=self.hu_range[1])
+        image, label, roi = data["image"].as_tensor(), data["label"].as_tensor(), data["roi"].as_tensor() if "roi" in data else None
+        mask = sparsify(image, label, roi=roi, roi_label=roi_label, empty_min=self.hu_range[0], empty_max=self.hu_range[1], return_mask=True) 
+        #return image+1024, label, mask 
+
+        c, x, y = sparsify(image, label, roi=roi, roi_label=roi_label, empty_min=self.hu_range[0], empty_max=self.hu_range[1])
+        #return image, label, roi
 
         # rename labels (tumor==2 should be more exclusive than cyst==3 for the later labels)
         mask_tumor, mask_cyst = y == 2, y == 3
@@ -84,9 +96,10 @@ class SparseDataset(Dataset):
                 y = y[:, 0].reshape(-1, 1)
 
         # standardise
-        x = (x - 48.10007) / 62.645897
-        #x = (x - self.hu_range[0]) / (self.hu_range[1] - self.hu_range[0])
-        #x = x * (1.0 - 0.01) + 0.01
+        if self.stage2:
+            x = (x - 57.802067) / 81.260414
+        else:
+            x = (x - 48.10007) / 62.645897
 
         c = c.float()
         x = x.float()

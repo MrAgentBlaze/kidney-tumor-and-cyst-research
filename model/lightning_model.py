@@ -11,6 +11,7 @@ class SparseLightningModel(pl.LightningModule):
         super(SparseLightningModel, self).__init__()
 
         self.model = model
+        self.target = args.target
         self.losses = args.losses
         self.loss_fn = loss_fn
         self.warmup_steps = args.warmup_steps
@@ -68,12 +69,10 @@ class SparseLightningModel(pl.LightningModule):
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
             #weight = 1 / (2 ** step)  # inspired by https://arxiv.org/pdf/2310.04110
             weight = 1 / (2 ** (3 * step))
-            #dense_output = output.dense()[0]
-            #dense_target = target.dense()[0]
-            
+           
+            # Align output and target
             sorted_indices_output = argsort_sparse_tensor(output)
             sorted_indices_target = argsort_sparse_tensor(target)
-            
             sorted_coords_output = output.coordinates[sorted_indices_output]
             sorted_coords_target = target.coordinates[sorted_indices_target]
 
@@ -91,6 +90,7 @@ class SparseLightningModel(pl.LightningModule):
                 extra_args = {}
                 if loss == "focal":
                     extra_args["gamma"] = 2.0
+                    extra_args["alpha"] = 0.9
                 elif loss == "dice":
                     extra_args["smooth"] = 1.0 if self.training else 1e-6
 
@@ -99,20 +99,16 @@ class SparseLightningModel(pl.LightningModule):
                     part_losses[i].append([all_masses_loss])
                     curr_loss = all_masses_loss
                 else:
-                    kidney_masses_args = extra_args.copy()
-                    masses_args = extra_args.copy()
-                    tumor_only_args = extra_args.copy()
-
-                    if loss == "focal":
-                        kidney_masses_args["alpha"] = 0.9  #0.9669001466296703
-                        masses_args["alpha"] = 0.91  ##0.9912589491525297
-                        tumor_only_args["alpha"] = 0.915  #0.992063786003657
-
-                    kidney_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **kidney_masses_args)
-                    masses_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **masses_args)
-                    tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **tumor_only_args) 
-                    part_losses[i].append([kidney_masses_loss, masses_loss, tumor_only_loss])
-                    curr_loss = kidney_masses_loss + masses_loss + tumor_only_loss
+                    if self.target == -1:
+                        kidney_masses_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, 0], **extra_args)
+                        masses_loss = loss_fn(sorted_feats_output[:, 1], sorted_feats_target[:, 1], **extra_args)
+                        tumor_only_loss = loss_fn(sorted_feats_output[:, 2], sorted_feats_target[:, 2], **extra_args) 
+                        part_losses[i].append([kidney_masses_loss, masses_loss, tumor_only_loss])
+                        curr_loss = kidney_masses_loss + masses_loss + tumor_only_loss
+                    else:
+                        curr_loss = loss_fn(sorted_feats_output[:, 0], sorted_feats_target[:, self.target], **extra_args)
+                        part_losses[i].append([curr_loss])
+                
                 losses[i] += weight * curr_loss 
 
         part_losses = torch.tensor(part_losses)
@@ -163,13 +159,15 @@ class SparseLightningModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         torch.cuda.empty_cache()
 
+        #print(batch["idx"], batch["f"].shape)
+
         loss, part_losses, batch_size, lr = self.common_step(batch)
 
         self.log(f"loss/train_total", loss.item(), batch_size=batch_size, prog_bar=True, sync_dist=True)
 
         for i in range(part_losses.shape[0]):  # Loop over N
             total_sum_over_mk = part_losses[i, :, :].sum().item()  # Sum over M and K for the i-th N
-            self.log(f"loss/train_l{i}", total_sum_over_mk, batch_size=batch_size, prog_bar=True, sync_dist=True)
+            self.log("loss/train_{}".format(self.losses[i]), total_sum_over_mk, batch_size=batch_size, prog_bar=True, sync_dist=True)
 
         for j in range(part_losses.shape[1]):  # Loop over M
             total_sum_over_nk = part_losses[:, j, :].sum().item()  # Sum over N and K for the j-th M
@@ -183,7 +181,7 @@ class SparseLightningModel(pl.LightningModule):
             for j in range(part_losses.shape[1]):
                 for k in range(part_losses.shape[2]):
                     output = part_losses[i, j, k].item()
-                    self.log("loss/train_o{}_l{}_step{}".format(k, i, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
+                    self.log("loss/train_{}_o{}_step{}".format(self.losses[i], k, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
         
         self.log(f"lr", lr, batch_size=batch_size, prog_bar=True, sync_dist=True)
 
@@ -199,7 +197,7 @@ class SparseLightningModel(pl.LightningModule):
 
         for i in range(part_losses.shape[0]):  # Loop over N
             total_sum_over_mk = part_losses[i, :, :].sum().item()  # Sum over M and K for the i-th N
-            self.log(f"loss/val_l{i}", total_sum_over_mk, batch_size=batch_size, prog_bar=False, sync_dist=True)
+            self.log("loss/val_{}".format(self.losses[i]), total_sum_over_mk, batch_size=batch_size, prog_bar=False, sync_dist=True)
 
         for j in range(part_losses.shape[1]):  # Loop over M
             total_sum_over_nk = part_losses[:, j, :].sum().item()  # Sum over N and K for the j-th M
@@ -213,7 +211,7 @@ class SparseLightningModel(pl.LightningModule):
             for j in range(part_losses.shape[1]):
                 for k in range(part_losses.shape[2]):
                     output = part_losses[i, j, k].item()
-                    self.log("loss/val_o{}_l{}_step{}".format(k, i, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
+                    self.log("loss/val_{}_o{}_step{}".format(self.losses[i], k, j), output, batch_size=batch_size, prog_bar=False, sync_dist=True)
 
         return loss
 

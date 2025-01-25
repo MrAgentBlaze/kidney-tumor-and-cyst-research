@@ -5,8 +5,12 @@ from torch.utils.data import Subset, DataLoader
 from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 
 
-def sparsify(dense_tensor, label_tensor, empty_min = -100, empty_max=200):
+def sparsify(dense_tensor, label_tensor, roi=None, roi_label=-1, empty_min = -100, empty_max=200, return_mask=False):
     mask = (dense_tensor >= empty_min) & (dense_tensor <= empty_max)
+    if roi is not None:
+        mask = mask & (roi == roi_label)
+    if return_mask:
+        return mask
     coords = torch.argwhere(mask[0])
     feats = dense_tensor[mask].unsqueeze(1)
     labels = label_tensor[mask].unsqueeze(1)
@@ -51,12 +55,14 @@ def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
 
 
 def collate_sparse_minkowski(batch):
+    idx = [d['idx'] for d in batch]
     coords = [d['c'] for d in batch]
     feats = torch.cat([d['x'] for d in batch])
     y = torch.cat([d['y'] for d in batch])
-
+    
     # Create the return dictionary
     ret = {
+        'idx': idx,
         'f': feats,
         'c': coords,
         'y': y,

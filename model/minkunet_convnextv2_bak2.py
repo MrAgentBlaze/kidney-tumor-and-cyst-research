@@ -69,7 +69,7 @@ class MinkUNetConvNeXtV2(nn.Module):
         cur = 0
 
         self.stem = nn.Sequential(
-            MinkowskiConvolution(in_channels, dims[0], kernel_size=1, stride=1, dimension=D),
+            MinkowskiConvolution(in_channels, dims[0], kernel_size=1, stride=1, dimension=3),
             MinkowskiLayerNorm(dims[0], eps=1e-6),
         ) 
 
@@ -83,7 +83,7 @@ class MinkUNetConvNeXtV2(nn.Module):
             if i < self.nb_elayers - 1:  
                 downsample_layer = nn.Sequential(
                     MinkowskiLayerNorm(dims[i], eps=1e-6),                
-                    MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D),
+                    MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=3),
                 )
                 self.downsample_layers.append(downsample_layer)
 
@@ -103,13 +103,13 @@ class MinkUNetConvNeXtV2(nn.Module):
 
         for i in range(self.nb_dlayers):
             upsample_layer = nn.Sequential(
-                MinkowskiLayerNorm(dims[i], eps=1e-6), 
-                MinkowskiConvolutionTranspose(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D),
+                MinkowskiLayerNorm(dims[i] if i==0 else dims[i]+dims[i], eps=1e-6), 
+                MinkowskiConvolutionTranspose(dims[i] if i==0 else dims[i]+dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=3),
             )
             self.upsample_layers.append(upsample_layer)
 
             decoder_layer = nn.Sequential(
-                *[Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
+                *[Block(dim=dims[i+1] + dims[i+1], kernel_size=kernel_size, drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
             )
             self.decoder_layers.append(decoder_layer)
             cur += depths[i]
@@ -117,21 +117,16 @@ class MinkUNetConvNeXtV2(nn.Module):
         """Cls layers"""
         if self.contrastive:
             self.cls_layer = nn.Sequential(
-                MinkowskiConvolution(dims[-1], decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
+                MinkowskiConvolution(dims[-1], decoder_embed_dim, kernel_size=1, stride=1, dimension=3),
+                Block(dim=decoder_embed_dim, drop_path=0., D=3),
+                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=3),
+                Block(dim=decoder_embed_dim, drop_path=0., D=3),
+                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=3),
             )
         else:
             self.cls_layers = nn.ModuleList()
             for i in range(self.nb_dlayers):
-                cls_layer = nn.Sequential(
-                    MinkowskiLayerNorm(dims[i+1], eps=1e-6),
-                    #MinkowskiConvolution(dims[i+1], dims[i+1], kernel_size=1, stride=1, dimension=D),
-                    Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=0., D=D),
-                    MinkowskiConvolution(dims[i+1], out_channels, kernel_size=1, stride=1, dimension=D),
-                )
+                cls_layer = MinkowskiConvolution(dims[i+1] + dims[i+1], out_channels, kernel_size=1, stride=1, dimension=3)
                 self.cls_layers.append(cls_layer)
 
         if not self.contrastive:
@@ -169,7 +164,7 @@ class MinkUNetConvNeXtV2(nn.Module):
         out_cls = []
         for i in range(self.nb_dlayers):
             x = self.upsample_layers[i](x)
-            x = x + x_enc[i]
+            x = ME.cat(x, x_enc[i])
             x = self.decoder_layers[i](x)
             if not self.contrastive:
                 if i >= (self.nb_dlayers - self.ds_steps):
