@@ -55,18 +55,25 @@ class SparseDataset(Dataset):
     def __len__(self):
         return len(self.data_files)
 
-
-    def __getitem__(self, idx):
+    
+    def read_file(self, idx):
+        path, roi_label = self.data_files[idx] if self.stage2 else (self.data_files[idx], -1)
+    
         if self.stage2:
-            path, roi_label = self.data_files[idx]
             data = torch.load(path)
         else:
-            path, roi_label = self.data_files[idx], -1
             with open(path, 'rb') as fd:
                 data = pkl.load(fd)
+    
+        idx = ''.join(filter(str.isdigit, path.split("/")[-1]))
+    
+        return idx, roi_label, data
 
-        idx = ''.join(char for char in path.split("/")[-1] if char.isdigit())
 
+    def __getitem__(self, idx):
+        # retrieve file
+        idx, roi_label, data = self.read_file(idx)
+        
         if self.training:
             # augment
             if np.random.rand() > 0.01:
@@ -75,25 +82,19 @@ class SparseDataset(Dataset):
         # sparsify
         image, label, roi = data["image"].as_tensor(), data["label"].as_tensor(), data["roi"].as_tensor() if "roi" in data else None
         mask = sparsify(image, label, roi=roi, roi_label=roi_label, empty_min=self.hu_range[0], empty_max=self.hu_range[1], return_mask=True) 
-        #return image+1024, label, mask 
-
         c, x, y = sparsify(image, label, roi=roi, roi_label=roi_label, empty_min=self.hu_range[0], empty_max=self.hu_range[1])
-        #return image, label, roi
 
         # rename labels (tumor==2 should be more exclusive than cyst==3 for the later labels)
         mask_tumor, mask_cyst = y == 2, y == 3
         y[mask_tumor] = 3
         y[mask_cyst] = 2
 
-        if not self.contrastive:
-            targets = torch.zeros(size=(y.shape[0], 3))
-            targets[:, 0] = y[:, 0] > 0  # kidney_tumor_cyst 
-            targets[:, 1] = y[:, 0] > 1  # tumor_cyst
-            targets[:, 2] = y[:, 0] == 3  # tumor_only
-            y = targets
-
-            if self.roi:
-                y = y[:, 0].reshape(-1, 1)
+        # create targets
+        targets = torch.zeros(size=(y.shape[0], 3))
+        targets[:, 0] = y[:, 0] > 0  # kidney_tumor_cyst 
+        targets[:, 1] = y[:, 0] > 1  # tumor_cyst
+        targets[:, 2] = y[:, 0] == 3  # tumor_only
+        y = targets
 
         # standardise
         if self.stage2:
