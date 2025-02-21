@@ -65,7 +65,7 @@ class SparseDataset(Dataset):
             with open(path, 'rb') as fd:
                 data = pkl.load(fd)
     
-        idx = ''.join(filter(str.isdigit, path.split("/")[-1]))
+        idx = ''.join(filter(str.isdigit, path.split("/")[-1].split("_")[0]))
     
         return idx, roi_label, data
 
