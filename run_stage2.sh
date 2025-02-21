@@ -1,38 +1,40 @@
 #!/bin/bash
 
 # Default arguments
-dataset_name="kits23_large_processed"
+dataset_name="kits23_processed_highres11_all"
 dataset_path="/scratch/salonso/sparse-nns/medical_data/{}/*"
-target=-1
-min_hu=-53.4
-max_hu=283.2
+#min_hu=-78.3
+#max_hu=531.4
+min_hu=-300
+max_hu=500
 ds_steps=3
 eps=1e-12
 batch_size=1
 folds=5
-epochs=1000
-num_workers=4
-lr=0.00045126675682188655
+epochs=500
+num_workers=8
+lr=5e-4
 accum_grad_batches=8
-warmup_steps=0
-weight_decay=5.5219848446051095e-05
+warmup_steps=1
+cosine_annealing_steps=400
+weight_decay=1e-5
 beta1=0.9
-beta2=0.9708736954009943
+beta2=0.95
 losses=("dice")
-save_dir="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/logs_stage1_ind"
-name="dice_optuna_1Kepochs"
+save_dir="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/logs_stage2"
+name="dice_v5"
 log_every_n_steps=5
 save_top_k=1
-checkpoint_path="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/checkpoints_stage_ind"
-checkpoint_name="dice_optuna_1Kepochs"
+checkpoint_path="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/checkpoints_stage2"
+checkpoint_name="dice_v5"
 load_checkpoint=None
 gpus=(1)
 
 python -m train.train \
     --train \
+    --stage2 \
     --dataset_name $dataset_name \
     --dataset_path $dataset_path \
-    --target $target \
     --min_hu $min_hu \
     --max_hu $max_hu \
     --ds_steps $ds_steps \
@@ -44,6 +46,7 @@ python -m train.train \
     --lr $lr \
     --accum_grad_batches $accum_grad_batches \
     --warmup_steps $warmup_steps \
+    --cosine_annealing_steps $cosine_annealing_steps \
     --weight_decay $weight_decay \
     --beta1 $beta1 \
     --beta2 $beta2 \
@@ -54,6 +57,5 @@ python -m train.train \
     --save_top_k $save_top_k \
     --checkpoint_path $checkpoint_path \
     --checkpoint_name $checkpoint_name \
-    --load_checkpoint $load_checkpoint \
     --gpus "${gpus[@]}"
 

@@ -9,6 +9,7 @@ Description: Training script.
 
 import os
 import torch
+import glob
 import pytorch_lightning as pl
 from functools import partial
 from utils import CustomFinetuningReversed, ini_argparse, get_k_fold_data_loaders, supervised_pixel_contrastive_loss, ce_loss, focal_loss, dice_loss
@@ -68,15 +69,17 @@ def main():
                 raise ValueError("Wrong loss")
 
     for fold, (train_loader, val_loader) in enumerate(fold_loaders):
-        if fold == 0:
+        print(f'Fold {fold + 1}')
+   
+        if os.path.isdir(args.checkpoint_path + "/" + args.checkpoint_name + "_{}".format(str(fold + 1))):
+            print("Completed.")
             continue
 
-        print(f'Fold {fold + 1}')
-    
         # Calculate arguments for scheduler
         nb_batches = len(train_loader)
-        args.scheduler_steps = nb_batches * (args.epochs - args.warmup_steps) // (args.accum_grad_batches * nb_gpus)
+        args.scheduler_steps = nb_batches * args.cosine_annealing_steps // (args.accum_grad_batches * nb_gpus)
         args.warmup_steps = nb_batches * args.warmup_steps // (args.accum_grad_batches * nb_gpus)
+        args.start_cosine_step = (nb_batches * args.epochs // (args.accum_grad_batches * nb_gpus)) - args.scheduler_steps
 
         # Initialize the model
         model = MinkUNetConvNeXtV2(in_channels=1, out_channels=1 if (args.roi or args.target != -1) else 3, D=3, args=args)
@@ -94,6 +97,12 @@ def main():
         checkpoint_callback = ModelCheckpoint(dirpath=args.checkpoint_path + "/" + args.checkpoint_name + "_{}".format(str(fold)),
                                               save_last=True, save_top_k=args.save_top_k, monitor="loss/val_total")
         progress_bar = CustomProgressBar()
+
+        if args.load_checkpoint is None:
+            ckpt_path = glob.glob(args.checkpoint_path + "/" + args.checkpoint_name + "_{}".format(str(fold)) + "/last*ckpt")
+            if len(ckpt_path) > 0:
+                ckpt_path = sorted(ckpt_path)[-1]
+                args.load_checkpoint = ckpt_path
 
         # Log the hyperparameters
         logger.log_hyperparams(vars(args))
@@ -118,8 +127,8 @@ def main():
         trainer.fit(model=lightning_model,
             train_dataloaders=train_loader,
             val_dataloaders=val_loader,
-            ckpt_path="/scratch/salonso/sparse-nns/medical_ai/ai_cancer_research/checkpoints_stage_ind/dice_optuna_1Kepochs_1/last.ckpt" if fold==1 else None)
-
+            ckpt_path=args.load_checkpoint if args.load_checkpoint else None,
+        )
 
 if __name__ == "__main__":
     main()

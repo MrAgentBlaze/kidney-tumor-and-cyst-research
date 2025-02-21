@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.optim import SGD
 import MinkowskiEngine as ME
 import torch.nn.functional as F
+from timm.models.layers import trunc_normal_
 from .utils import (
     Block,
     LayerNorm,
@@ -22,20 +23,20 @@ from MinkowskiEngine import (
 
 # Custom weight initialization function
 def _init_weights(m):
-    if isinstance(m, ME.MinkowskiConvolution):
-        nn.init.trunc_normal_(m.kernel, std=.02)
+    if isinstance(m, MinkowskiConvolution):
+        trunc_normal_(m.kernel, std=.02)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
-    if isinstance(m, ME.MinkowskiGenerativeConvolutionTranspose):
-        nn.init.trunc_normal_(m.kernel, std=.02)
+    if isinstance(m, MinkowskiConvolutionTranspose):
+        trunc_normal_(m.kernel, std=.02)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
-    if isinstance(m, ME.MinkowskiDepthwiseConvolution):
-        nn.init.trunc_normal_(m.kernel, std=.02)
+    if isinstance(m, MinkowskiDepthwiseConvolution):
+        trunc_normal_(m.kernel, std=.02)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
-    if isinstance(m, ME.MinkowskiLinear):
-        nn.init.trunc_normal_(m.linear.weight, std=.02)
+    if isinstance(m, MinkowskiLinear):
+        trunc_normal_(m.linear.weight, std=.02)
         if m.linear.bias is not None:
             nn.init.constant_(m.linear.bias, 0)
     if isinstance(m, nn.LayerNorm):

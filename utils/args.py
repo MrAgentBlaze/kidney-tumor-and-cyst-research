@@ -36,6 +36,7 @@ def ini_argparse():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate of the optimiser")
     parser.add_argument("-ag", "--accum_grad_batches", type=int, default=1, help="batches for gradient accumulation")
     parser.add_argument('-ws', '--warmup_steps', type=int, default=0, help='Maximum number of warmup steps')
+    parser.add_argument('--cosine_annealing_steps', type=int, default=0, help='Number of cosine annealing steps')
     parser.add_argument("-wd", "--weight_decay", type=float, default=0.05, help="weight_decay of the optimiser")
     parser.add_argument("-b1", "--beta1", type=float, default=0.9, help="AdamW first beta value")
     parser.add_argument("-b2", "--beta2", type=float, default=0.999, help="AdamW second beta value")

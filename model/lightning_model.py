@@ -15,6 +15,7 @@ class SparseLightningModel(pl.LightningModule):
         self.losses = args.losses
         self.loss_fn = loss_fn
         self.warmup_steps = args.warmup_steps
+        self.start_cosine_step = args.start_cosine_step
         self.cosine_annealing_steps = args.scheduler_steps
         self.lr = args.lr
         self.betas = (args.beta1, args.beta2)
@@ -91,8 +92,6 @@ class SparseLightningModel(pl.LightningModule):
                 if loss == "focal":
                     extra_args["gamma"] = 2.0
                     extra_args["alpha"] = 0.9
-                elif loss == "dice":
-                    extra_args["smooth"] = 1.0 if self.training else 1e-6
 
                 if self.roi:
                     all_masses_loss = loss_fn(decom_feats_output, decom_feats_target, **extra_args)
@@ -234,21 +233,18 @@ class SparseLightningModel(pl.LightningModule):
             eta_min=0
         )
 
-        if self.warmup_steps > 0:
-            # Warm-up scheduler
-            warmup_scheduler = CustomLambdaLR(optimizer, self.warmup_steps)
+        # Warm-up scheduler
+        warmup_scheduler = CustomLambdaLR(optimizer, self.warmup_steps)
         
-            # Combine both schedulers
-            combined_scheduler = CombinedScheduler(
-                optimizer=optimizer,
-                scheduler1=warmup_scheduler,
-                scheduler2=cosine_scheduler,
-                warmup_steps=self.warmup_steps,
-                lr_decay=1.0
-            )
-        else:
-            # No warm-up
-            combined_scheduler = cosine_scheduler
+        # Combine both schedulers
+        combined_scheduler = CombinedScheduler(
+            optimizer=optimizer,
+            scheduler1=warmup_scheduler,
+            scheduler2=cosine_scheduler,
+            warmup_steps=self.warmup_steps,
+            start_cosine_step=self.start_cosine_step,
+            lr_decay=1.0
+        )
 
         return {'optimizer': optimizer, 'lr_scheduler': {'scheduler': combined_scheduler, 'interval': 'step'}}
 

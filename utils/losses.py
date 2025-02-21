@@ -243,7 +243,8 @@ def sigmoid_focal_loss_star(
 
 def dice_score(inputs: torch.Tensor,
                targets: torch.Tensor,
-               smooth: float = 1):
+               smooth_num: float = 0,
+               smooth_den: float = 1e-12):
     """
     Args:
         inputs: A float tensor of arbitrary shape.
@@ -257,7 +258,7 @@ def dice_score(inputs: torch.Tensor,
     intersection = torch.sum(targets * inputs, dim=reduce_axes)
     union = torch.sum(targets, dim=reduce_axes) + torch.sum(inputs, dim=reduce_axes)
 
-    dice_score = (2. * intersection + smooth) / (union + smooth)
+    dice_score = (2. * intersection + smooth_num) / (union + smooth_den)
     
     return torch.mean(dice_score)
 
@@ -265,7 +266,8 @@ def dice_score(inputs: torch.Tensor,
 def dice_loss(inputs: torch.Tensor or list[torch.Tensor],
               targets: torch.Tensor or list[torch.Tensor],
               sigmoid: bool = True,
-              smooth: float = 1,
+              smooth_num: float = 0,
+              smooth_den: float = 1e-12,
               reduction: str = "none",
 ) -> torch.Tensor:
     """
@@ -299,7 +301,7 @@ def dice_loss(inputs: torch.Tensor or list[torch.Tensor],
             if tgt.size(-1) == 1:
                 tgt = tgt.squeeze(-1) 
             ipt = torch.sigmoid(ipt)
-            scores[batch_idx] = dice_score(ipt, tgt, smooth)
+            scores[batch_idx] = dice_score(ipt, tgt, smooth_num, smooth_den)
     else:
         # multi-class
         for batch_idx, (ipt, tgt) in enumerate(zip(inputs, targets)):
@@ -308,7 +310,7 @@ def dice_loss(inputs: torch.Tensor or list[torch.Tensor],
             for i in range(nb_labels):
                 ipt_i = ipt[:, i]
                 tgt_i = (tgt[:, 0] == i).float()
-                score += dice_score(ipt_i, tgt_i, smooth)
+                score += dice_score(ipt_i, tgt_i, smooth_num, smooth_den)
             score /= nb_labels
             scores[batch_idx] = score
 

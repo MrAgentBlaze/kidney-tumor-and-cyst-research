@@ -18,6 +18,58 @@ def sparsify(dense_tensor, label_tensor, roi=None, roi_label=-1, empty_min = -10
     return coords, feats, labels
 
 
+def replace_depthwise_with_channelwise(model):
+    for name, module in model.named_modules():
+        if isinstance(module, ME.MinkowskiDepthwiseConvolution):
+            in_channels = module.in_channels
+            kernel_size = module.kernel_generator.kernel_size
+            stride = module.kernel_generator.kernel_stride
+            dilation = module.kernel_generator.kernel_dilation
+            bias = module.bias is not None
+            dimension = module.dimension
+
+            # create a new MinkowskiChannelwiseConvolution with the same parameters
+            new_conv = ME.MinkowskiChannelwiseConvolution(
+                in_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                dilation=dilation,
+                bias=bias,
+                dimension=dimension
+            )
+
+            # copy the weights and bias from old depthwise convolution
+            new_conv.kernel = module.kernel
+            if bias:
+                new_conv.bias = module.bias
+
+            parent_module, attr_name = _get_parent_module(model, name)
+            setattr(parent_module, attr_name, new_conv)
+
+    return model
+
+
+def _get_parent_module(model, layer_name):
+    components = layer_name.split('.')
+    parent = model
+    for comp in components[:-1]:
+        parent = getattr(parent, comp)
+    return parent, components[-1]
+
+
+def load_model_from_lightning(model, checkpoint_path, device, strict=False):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    
+    # Remove the "model." prefix from the keys in the state_dict
+    state_dict = {key.replace("model.", ""): value for key, value in checkpoint['state_dict'].items()}
+    model.load_state_dict(state_dict, strict=strict)
+    model = replace_depthwise_with_channelwise(model) if device.type == "cpu" else model.to(device)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Checkpoint loaded. Total trainable params model (total): {}".format(total_params))
+
+    return model
+
+
 def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
     """
     Splits a dataset into K folds and returns DataLoaders for training and validation sets for each fold.
@@ -130,7 +182,7 @@ class CustomLambdaLR(LambdaLR):
 
 
 class CombinedScheduler(_LRScheduler):
-    def __init__(self, optimizer, scheduler1, scheduler2, lr_decay=1.0, warmup_steps=100):
+    def __init__(self, optimizer, scheduler1, scheduler2, lr_decay=1.0, warmup_steps=100, start_cosine_step=100):
         """
         Initialize the CombinedScheduler.
 
@@ -140,11 +192,13 @@ class CombinedScheduler(_LRScheduler):
             scheduler2 (_LRScheduler): The second scheduler for the main phase.
             lr_decay (float): The factor by which the learning rate is decayed after each restart (default: 1.0).
             warmup_steps (int): The number of steps for the warm-up phase (default: 100).
+            start_cosine_step (int): The step to start cosine annealing scheduling.
         """
         self.optimizer = optimizer
         self.scheduler1 = scheduler1
         self.scheduler2 = scheduler2
         self.warmup_steps = warmup_steps
+        self.start_cosine_step = start_cosine_step
         self.step_num = 0  # current scheduler step
         self.lr_decay = lr_decay  # decrease of lr after every restart
 
@@ -157,12 +211,32 @@ class CombinedScheduler(_LRScheduler):
         """
         if self.step_num < self.warmup_steps:
             self.scheduler1.step()
-        else:
+        elif self.step_num >= self.start_cosine_step:
             self.scheduler2.step()
             if self.lr_decay < 1.0 and (self.scheduler2.T_cur+1 == self.scheduler2.T_i):
                 # Reduce the learning rate after every restart
                 self.scheduler2.base_lrs[0] *= self.lr_decay
         self.step_num += 1
+
+    def state_dict(self):
+        """Return the state of the scheduler."""
+        return {
+            'warmup_steps': self.warmup_steps,
+            'start_cosine_step': self.start_cosine_step,
+            'step_num': self.step_num,
+            'lr_decay': self.lr_decay,
+            'scheduler1': self.scheduler1.state_dict(),
+            'scheduler2': self.scheduler2.state_dict()
+        }
+
+    def load_state_dict(self, state_dict):
+        """Load the scheduler state."""
+        self.warmup_steps = state_dict['warmup_steps']
+        self.start_cosine_step = state_dict['start_cosine_step']
+        self.step_num = state_dict['step_num']
+        self.lr_decay = state_dict['lr_decay']
+        self.scheduler1.load_state_dict(state_dict['scheduler1'])
+        self.scheduler2.load_state_dict(state_dict['scheduler2'])
 
 
 def replace_depthwise_with_channelwise(model):
