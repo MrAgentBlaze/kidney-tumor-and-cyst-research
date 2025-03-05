@@ -1,82 +1,58 @@
 import torch
 import torch.nn as nn
 from torch.optim import SGD
-import MinkowskiEngine as ME
 import torch.nn.functional as F
-from timm.models.layers import trunc_normal_
+from timm.models.layers import trunc_normal_, DropPath
 from .utils import (
     LayerNorm,
-    MinkowskiLayerNorm,
-    MinkowskiGRN,
-    MinkowskiDropPath
-)
-
-from MinkowskiEngine import (
-    MinkowskiConvolution,
-    MinkowskiConvolutionTranspose,
-    MinkowskiDepthwiseConvolution,
-    MinkowskiLinear,
-    MinkowskiGELU
+    GRN,
 )
 
 
 # Custom weight initialization function
 def _init_weights(m):
-    if isinstance(m, MinkowskiConvolution):
-        trunc_normal_(m.kernel, std=.02)
+    if isinstance(m, (nn.Conv3d, nn.ConvTranspose3d, nn.Linear)):
+        trunc_normal_(m.weight, std=.02)
         if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    if isinstance(m, MinkowskiConvolutionTranspose):
-        trunc_normal_(m.kernel, std=.02)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    if isinstance(m, MinkowskiDepthwiseConvolution):
-        trunc_normal_(m.kernel, std=.02)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    if isinstance(m, MinkowskiLinear):
-        trunc_normal_(m.linear.weight, std=.02)
-        if m.linear.bias is not None:
-            nn.init.constant_(m.linear.bias, 0)
+            nn.init.constant_(m.bias, 0)    
     if isinstance(m, nn.LayerNorm):
         nn.init.constant_(m.bias, 0)
         nn.init.constant_(m.weight, 1.0)
 
 
 class Block(nn.Module):
-    """ Sparse ConvNeXtV2 Block. 
-
+    """ ConvNeXtV2 Block.
+    
     Args:
         dim (int): Number of input channels.
-        kernel_size (int): Size of input kernel.
         drop_path (float): Stochastic depth rate. Default: 0.0
-        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
-    def __init__(self, dim, kernel_size=5, drop_path=0., D=3):
+    def __init__(self, dim, kernel_size=5, drop_path=0.):
         super().__init__()
-
-        self.dwconv = MinkowskiDepthwiseConvolution(dim, kernel_size=kernel_size, bias=True, dimension=D)
-        self.norm = MinkowskiLayerNorm(dim, 1e-6)
-        self.pwconv1 = MinkowskiLinear(dim, 4 * dim)
-        self.act = MinkowskiGELU()
-        self.grn = MinkowskiGRN(4  * dim)
-        self.pwconv2 = MinkowskiLinear(4 * dim, dim)
-        self.drop_path = MinkowskiDropPath(drop_path)
+        self.dwconv = nn.Conv3d(dim, dim, kernel_size=kernel_size, padding=3, groups=dim) # depthwise conv
+        self.norm = LayerNorm(dim, eps=1e-6)
+        self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
+        self.act = nn.GELU()
+        self.grn = GRN(4 * dim)
+        self.pwconv2 = nn.Linear(4 * dim, dim)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, x):
         input = x
         x = self.dwconv(x)
+        x = x.permute(0, 2, 3, 4, 1) # (N, C, H, W, D) -> (N, H, W, D, C)
         x = self.norm(x)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.grn(x)
         x = self.pwconv2(x)
-        x = input + self.drop_path(x)
+        x = x.permute(0, 4, 1, 2, 3) # (N, H, W, D, C) -> (N, C, H, W, D)
 
+        x = input + self.drop_path(x)
         return x
 
 
-class MinkUNetConvNeXtV2(nn.Module):
+class DenseUNetConvNeXtV2(nn.Module):
 
     def __init__(self, in_channels, out_channels, D=3, args=None):
         nn.Module.__init__(self)
@@ -88,7 +64,6 @@ class MinkUNetConvNeXtV2(nn.Module):
         """Encoder"""
         depths=[2, 4, 4, 8, 8, 8]
         dims = (16, 32, 64, 128, 256, 512)
-        #dims = (16, 32, 64, 96, 96, 96)
         kernel_size = 3
         drop_path_rate = 0.0
 
@@ -102,28 +77,27 @@ class MinkUNetConvNeXtV2(nn.Module):
         cur = 0
 
         self.stem = nn.Sequential(
-            MinkowskiConvolution(in_channels, dims[0], kernel_size=1, stride=1, dimension=D),
-            MinkowskiLayerNorm(dims[0], eps=1e-6),
+            nn.Conv3d(in_channels, dims[0], kernel_size=1, stride=1, bias=False),
+            LayerNorm(dims[0], eps=1e-6, data_format="channels_first"),
         ) 
 
         for i in range(self.nb_elayers):
             encoder_layer = nn.Sequential(
-                *[Block(dim=dims[i], kernel_size=kernel_size, drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
+                *[Block(dim=dims[i], kernel_size=kernel_size, drop_path=dp_rates[cur + j]) for j in range(depths[i])]
             )
             self.encoder_layers.append(encoder_layer)
             cur += depths[i]
 
             if i < self.nb_elayers - 1:  
                 downsample_layer = nn.Sequential(
-                    MinkowskiLayerNorm(dims[i], eps=1e-6),                
-                    MinkowskiConvolution(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D),
+                    LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),                
+                    nn.Conv3d(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True),
                 )
                 self.downsample_layers.append(downsample_layer)
 
         """Decoder"""
         last_enc_depth = depths[-1]
         depths = [2, 2, 2, 2, 2]
-        #depths = depths[:-1][::-1]
         dims = dims[::-1]
         decoder_embed_dim = 32
 
@@ -136,13 +110,13 @@ class MinkUNetConvNeXtV2(nn.Module):
 
         for i in range(self.nb_dlayers):
             upsample_layer = nn.Sequential(
-                MinkowskiLayerNorm(dims[i], eps=1e-6), 
-                MinkowskiConvolutionTranspose(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True, dimension=D),
+                LayerNorm(dims[i], eps=1e-6, data_format="channels_first"), 
+                nn.ConvTranspose3d(dims[i], dims[i+1], kernel_size=2, stride=2, bias=True),
             )
             self.upsample_layers.append(upsample_layer)
 
             decoder_layer = nn.Sequential(
-                *[Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=dp_rates[cur + j], D=D) for j in range(depths[i])]
+                *[Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=dp_rates[cur + j]) for j in range(depths[i])]
             )
             self.decoder_layers.append(decoder_layer)
             cur += depths[i]
@@ -150,26 +124,25 @@ class MinkUNetConvNeXtV2(nn.Module):
         """Cls layers"""
         if self.contrastive:
             self.cls_layer = nn.Sequential(
-                MinkowskiConvolution(dims[-1], decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
+                nn.Conv3d(dims[-1], decoder_embed_dim, kernel_size=1, stride=1, bias=False),
+                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0.),
+                nn.Conv3d(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, bias=False),
+                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0.),
+                nn.Conv3d(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, bias=False),
             )
         else:
             self.cls_layers = nn.ModuleList()
             for i in range(self.nb_dlayers):
                 cls_layer = nn.Sequential(
-                    MinkowskiLayerNorm(dims[i+1], eps=1e-6),
-                    #MinkowskiConvolution(dims[i+1], dims[i+1], kernel_size=1, stride=1, dimension=D),
-                    Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=0., D=D),
-                    MinkowskiConvolution(dims[i+1], out_channels, kernel_size=1, stride=1, dimension=D),
+                    LayerNorm(dims[i+1], eps=1e-6, data_format="channels_first"),
+                    Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=0.),
+                    nn.Conv3d(dims[i+1], out_channels, kernel_size=1, stride=1, bias=False),
                 )
                 self.cls_layers.append(cls_layer)
 
         if not self.contrastive:
             """ Pool just for generating downsampled labels """        
-            self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3) 
+            self.pool = nn.AvgPool3d(kernel_size=2, stride=2) 
 
         """ Initialise weights """
         self.apply(_init_weights)
