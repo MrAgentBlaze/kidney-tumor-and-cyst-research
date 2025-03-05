@@ -29,7 +29,7 @@ class Block(nn.Module):
     """
     def __init__(self, dim, kernel_size=5, drop_path=0.):
         super().__init__()
-        self.dwconv = nn.Conv3d(dim, dim, kernel_size=kernel_size, padding=3, groups=dim) # depthwise conv
+        self.dwconv = nn.Conv3d(dim, dim, kernel_size=kernel_size, padding=kernel_size//2, groups=dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
@@ -175,7 +175,8 @@ class DenseUNetConvNeXtV2(nn.Module):
         out_cls = []
         for i in range(self.nb_dlayers):
             x = self.upsample_layers[i](x)
-            x = x + x_enc[i]
+            _, _, d, h, w = x.shape
+            x = x + x_enc[i][:, :, :d, :h, :w]
             x = self.decoder_layers[i](x)
             if not self.contrastive:
                 if i >= (self.nb_dlayers - self.ds_steps):
