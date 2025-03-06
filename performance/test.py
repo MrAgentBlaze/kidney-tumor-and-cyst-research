@@ -113,8 +113,6 @@ def main():
     loader_lowres = create_dataloader(dataset_lowres)
     loader_highres = create_dataloader(dataset_highres)
     
-    print(len(loader_lowres), len(loader_highres))
-    
     device_cpu = torch.device("cpu")
     device_gpu = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -130,26 +128,26 @@ def main():
         final_results["low_res_channelwise_gpu"] = run_tests(net_channelwise, loader_lowres, device_gpu, "Low-res: Channelwise [GPU]", args.sparse, use_gpu=True)
         final_results["low_res_depthwise_gpu"] = run_tests(net_depthwise, loader_lowres, device_gpu, "Low-res: Depthwise [GPU]", args.sparse, use_gpu=True)
         
-        save_results(final_results, "performance/lowres.pkl")
+        save_results(final_results, "performance/lowres_sparse.pkl")
         
         final_results = {}
         final_results["high_res_channelwise_cpu"] = run_tests(net_channelwise, loader_highres, device_cpu, "High-res: Channelwise [CPU]", args.sparse)
         final_results["high_res_channelwise_gpu"] = run_tests(net_channelwise, loader_highres, device_gpu, "High-res: Channelwise [GPU]", args.sparse, use_gpu=True)
         final_results["high_res_depthwise_gpu"] = run_tests(net_depthwise, loader_highres, device_gpu, "High-res: Depthwise [GPU]", args.sparse, use_gpu=True)
         
-        save_results(final_results, "performance/highres.pkl")
+        save_results(final_results, "performance/highres_sparse.pkl")
     else:
         net_dense = DenseUNetConvNeXtV2(in_channels=1, out_channels=3, D=3, args=args)
         net_dense.eval()
         
         final_results["low_res_dense_cpu"] = run_tests(net_dense, loader_lowres, device_cpu, "Low-res: Dense [CPU]", args.sparse)
         final_results["low_res_dense_gpu"] = run_tests(net_dense, loader_lowres, device_gpu, "Low-res: Dense [GPU]", args.sparse, use_gpu=True)
-        save_results(final_results, "performance/lowres.pkl")
+        save_results(final_results, "performance/lowres_dense.pkl")
         
         final_results = {}
         final_results["high_res_dense_cpu"] = run_tests(net_dense, loader_highres, device_cpu, "High-res: Dense [CPU]", args.sparse)
         final_results["high_res_dense_gpu"] = run_tests(net_dense, loader_highres, device_gpu, "High-res: Dense [GPU]", args.sparse, use_gpu=True)
-        save_results(final_results, "performance/highres.pkl")
+        save_results(final_results, "performance/highres_dense.pkl")
 
 if __name__ == "__main__":
     main()
