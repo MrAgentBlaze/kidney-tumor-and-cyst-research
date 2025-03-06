@@ -81,8 +81,6 @@ class MinkUNetConvNeXtV2(nn.Module):
     def __init__(self, in_channels, out_channels, D=3, args=None):
         nn.Module.__init__(self)
         
-        self.contrastive = args.contrastive
-        self.finetuning = args.finetuning
         self.ds_steps = args.ds_steps
 
         """Encoder"""
@@ -148,45 +146,32 @@ class MinkUNetConvNeXtV2(nn.Module):
             cur += depths[i]
 
         """Cls layers"""
-        if self.contrastive:
-            self.cls_layer = nn.Sequential(
-                MinkowskiConvolution(dims[-1], decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
-                Block(dim=decoder_embed_dim, kernel_size=kernel_size, drop_path=0., D=D),
-                MinkowskiConvolution(decoder_embed_dim, decoder_embed_dim, kernel_size=1, stride=1, dimension=D),
+        self.cls_layers = nn.ModuleList()
+        for i in range(self.nb_dlayers):
+            cls_layer = nn.Sequential(
+                MinkowskiLayerNorm(dims[i+1], eps=1e-6),
+                #MinkowskiConvolution(dims[i+1], dims[i+1], kernel_size=1, stride=1, dimension=D),
+                Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=0., D=D),
+                MinkowskiConvolution(dims[i+1], out_channels, kernel_size=1, stride=1, dimension=D),
             )
-        else:
-            self.cls_layers = nn.ModuleList()
-            for i in range(self.nb_dlayers):
-                cls_layer = nn.Sequential(
-                    MinkowskiLayerNorm(dims[i+1], eps=1e-6),
-                    #MinkowskiConvolution(dims[i+1], dims[i+1], kernel_size=1, stride=1, dimension=D),
-                    Block(dim=dims[i+1], kernel_size=kernel_size, drop_path=0., D=D),
-                    MinkowskiConvolution(dims[i+1], out_channels, kernel_size=1, stride=1, dimension=D),
-                )
-                self.cls_layers.append(cls_layer)
+            self.cls_layers.append(cls_layer)
 
-        if not self.contrastive:
-            """ Pool just for generating downsampled labels """        
-            self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3) 
+        """ Pool just for generating downsampled labels """        
+        self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=3) 
 
         """ Initialise weights """
         self.apply(_init_weights)
 
     def forward(self, x, y):
-        if self.contrastive:
-            ys = None
-        else:
-            """ Generate labels for deep supervision """
-            ys = []
-            for i in range(self.ds_steps):
-                if i==0:
-                    y_aux = y.detach()
-                else:
-                    y_aux = self.pool(y_aux)
-                if i < self.ds_steps:
-                    ys.append(y_aux)
+        """ Generate labels for deep supervision """
+        ys = []
+        for i in range(self.ds_steps):
+            if i==0:
+                y_aux = y.detach()
+            else:
+                y_aux = self.pool(y_aux)
+            if i < self.ds_steps:
+                ys.append(y_aux)
  
         """Encoder"""
         x = self.stem(x)
@@ -204,13 +189,9 @@ class MinkUNetConvNeXtV2(nn.Module):
             x = self.upsample_layers[i](x)
             x = x + x_enc[i]
             x = self.decoder_layers[i](x)
-            if not self.contrastive:
-                if i >= (self.nb_dlayers - self.ds_steps):
-                    out_cl = self.cls_layers[i](x)
-                    out_cls.insert(0, out_cl)
+            if i >= (self.nb_dlayers - self.ds_steps):
+                out_cl = self.cls_layers[i](x)
+                out_cls.insert(0, out_cl)
 
-        if self.contrastive:
-            out_cls = self.cls_layer(x)
- 
         return out_cls, ys
 
