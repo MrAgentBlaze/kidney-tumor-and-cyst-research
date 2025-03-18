@@ -3,7 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 import pytorch_lightning as pl
 from utils import arrange_sparse_minkowski, arrange_truth, argsort_sparse_tensor, CustomLambdaLR, CombinedScheduler
-from pytorch_lightning.trainer.supporters import CombinedDataset
+from packaging import version
+
+
+pl_version = pl.__version__
 
 
 class SparseLightningModel(pl.LightningModule):
@@ -33,25 +36,35 @@ class SparseLightningModel(pl.LightningModule):
         self.optimizers().param_groups = self.optimizers()._optimizer.param_groups
  
 
+    def _set_training_mode(self, loader, mode: bool):
+        """Handles dataset training mode setting for both PL 1.x and 2.x."""
+        dataset = loader.dataset
+    
+        if version.parse(pl_version) < version.parse("2.0.0"):
+            # PyTorch Lightning 1.x
+            if hasattr(dataset, "datasets") and hasattr(dataset.datasets, "dataset"):
+                dataset.datasets.dataset.set_training_mode(mode)
+        else:
+            # PyTorch Lightning 2.x
+            if hasattr(dataset, "dataset"):
+                dataset.dataset.set_training_mode(mode)
+
+    
     def on_train_epoch_start(self):
         """Hook to be called at the start of each training epoch."""
-        train_loader = self.trainer.train_dataloader
-        if isinstance(train_loader.dataset, CombinedDataset):
-            train_loader.dataset.datasets.dataset.set_training_mode(True)
-        else:
-            train_loader.dataset.set_training_mode(True)
+        self._set_training_mode(self.trainer.train_dataloader, True)
 
-
+    
     def on_validation_epoch_start(self):
         """Hook to be called at the start of each validation epoch."""
-        val_loader = self.trainer.val_dataloaders[0]
-        val_loader.dataset.dataset.set_training_mode(False)
+        val_loader = self.trainer.val_dataloaders[0] if version.parse(pl_version) < version.parse("2.0.0") else self.trainer.val_dataloaders
+        self._set_training_mode(val_loader, False)
 
-
+    
     def on_test_epoch_start(self):
         """Hook to be called at the start of each test epoch."""
-        test_loader = self.trainer.test_dataloaders[0]
-        test_loader.dataset.dataset.set_training_mode(False)
+        test_loader = self.trainer.test_dataloaders[0] if version.parse(pl_version) < version.parse("2.0.0") else self.trainer.test_dataloaders
+        self._set_training_mode(test_loader, False)
 
 
     def forward(self, x, y):
