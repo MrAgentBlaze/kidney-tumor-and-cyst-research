@@ -23,8 +23,6 @@ class SparseDataset(Dataset):
         self.hu_range = (args.min_hu, args.max_hu)
         self.source_range = (-1, 1)
         self.training = False
-        self.contrastive = args.contrastive 
-        self.roi = args.roi
 
         if self.stage2:
             self.data_files = [(path, int(path.split("_")[-1][:-3])) for path in self.data_files]

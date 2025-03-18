@@ -277,3 +277,24 @@ def _get_parent_module(model, layer_name):
         parent = getattr(parent, comp)
     return parent, components[-1]
 
+
+def configure_matplotlib():
+    import matplotlib
+    import matplotlib.pyplot as plt
+    from matplotlib import font_manager
+    from pathlib import Path
+
+    # Reset the plot configurations to default
+    plt.rcdefaults()
+
+    # Set up font properties
+    font_path = str(Path(matplotlib.get_data_path(), "fonts/ttf/cmr10.ttf"))
+    font_manager.fontManager.addfont(font_path)
+    prop = font_manager.FontProperties(fname=font_path)
+
+    # Apply font settings
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = prop.get_name()
+    plt.rcParams["axes.formatter.use_mathtext"] = True
+    plt.rcParams.update({'mathtext.default': 'regular'})
+
