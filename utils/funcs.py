@@ -1,5 +1,6 @@
 import torch
 import MinkowskiEngine as ME
+import copy
 from sklearn.model_selection import KFold
 from torch.utils.data import Subset, DataLoader
 from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
@@ -89,9 +90,10 @@ def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
 
     for train_indices, val_indices in kfold.split(dataset):
         # Create training and validation subsets
-        train_subset = Subset(dataset, train_indices)
-        val_subset = Subset(dataset, val_indices)
-        
+        train_subset = Subset(copy.deepcopy(dataset), train_indices)
+        train_subset.dataset.training = True  # activate augmentations
+        val_subset = Subset(copy.deepcopy(dataset), val_indices)
+
         # Create DataLoaders for the subsets
         train_loader = DataLoader(train_subset, batch_size=args.batch_size, num_workers=args.num_workers,
                 pin_memory=True, persistent_workers=True if args.num_workers > 0 else False,

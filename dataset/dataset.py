@@ -28,12 +28,6 @@ class SparseDataset(Dataset):
             self.data_files = [(path, int(path.split("_")[-1][:-3])) for path in self.data_files]
 
 
-    def set_training_mode(self, training=True):
-        """Sets the split type dynamically."""
-        print("Setting training mode to {}.".format(training))
-        self.training = training
-
-
     @property
     def processed_dir(self):
         return f'{self.root}'

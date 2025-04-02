@@ -25,47 +25,12 @@ class SparseLightningModel(pl.LightningModule):
         self.weight_decay = args.weight_decay
         self.eps = args.eps
         self.roi = args.roi
-        self.contrastive = args.contrastive
-        self.finetuning = args.finetuning
-        self.chunk_size = args.chunk_size
-        self.label_weights = [float(x) for x in args.label_weights] if args.label_weights is not None else None
 
 
     def on_train_start(self):
         "Fixing bug: https://github.com/Lightning-AI/pytorch-lightning/issues/17296#issuecomment-1726715614"
         self.optimizers().param_groups = self.optimizers()._optimizer.param_groups
  
-
-    def _set_training_mode(self, loader, mode: bool):
-        """Handles dataset training mode setting for both PL 1.x and 2.x."""
-        dataset = loader.dataset
-    
-        if version.parse(pl_version) < version.parse("2.0.0"):
-            # PyTorch Lightning 1.x
-            if hasattr(dataset, "datasets") and hasattr(dataset.datasets, "dataset"):
-                dataset.datasets.dataset.set_training_mode(mode)
-        else:
-            # PyTorch Lightning 2.x
-            if hasattr(dataset, "dataset"):
-                dataset.dataset.set_training_mode(mode)
-
-    
-    def on_train_epoch_start(self):
-        """Hook to be called at the start of each training epoch."""
-        self._set_training_mode(self.trainer.train_dataloader, True)
-
-    
-    def on_validation_epoch_start(self):
-        """Hook to be called at the start of each validation epoch."""
-        val_loader = self.trainer.val_dataloaders[0] if version.parse(pl_version) < version.parse("2.0.0") else self.trainer.val_dataloaders
-        self._set_training_mode(val_loader, False)
-
-    
-    def on_test_epoch_start(self):
-        """Hook to be called at the start of each test epoch."""
-        test_loader = self.trainer.test_dataloaders[0] if version.parse(pl_version) < version.parse("2.0.0") else self.trainer.test_dataloaders
-        self._set_training_mode(test_loader, False)
-
 
     def forward(self, x, y):
         return self.model(x, y)
@@ -129,38 +94,13 @@ class SparseLightningModel(pl.LightningModule):
         return total_loss, part_losses
    
 
-    def compute_losses_contrastive(self, batch_output, batch_target):
-        losses = [0.]
-        part_losses = [[]] 
- 
-        assert (batch_output.coordinates == batch_target.coordinates).all()
-        
-        coords, labels = batch_target.decomposed_coordinates_and_features
-        coords_, feats = batch_output.decomposed_coordinates_and_features
-          
-        curr_loss = self.loss_fn(feats, feats, labels, labels, label_weights=self.label_weights, chunk_size=self.chunk_size)
-
-        part_losses[0].append([curr_loss])
-        losses[0] += curr_loss
-
-        part_losses = torch.tensor(part_losses)
-        total_loss = sum(losses)
-
-        return total_loss, part_losses
-
-
     def common_step(self, batch):
         batch_size = len(batch["c"])
         batch_input, batch_target = self._arrange_batch(batch)
 
         # Forward pass
-        if self.contrastive:
-            coords, labels = batch_input.decomposed_coordinates_and_features
-            batch_output, _ = self.forward(batch_input, batch_target)
-            loss, part_losses = self.compute_losses_contrastive(batch_output, batch_target)
-        else:
-            batch_output, batch_target = self.forward(batch_input, batch_target)
-            loss, part_losses = self.compute_losses(batch_output, batch_target)
+        batch_output, batch_target = self.forward(batch_input, batch_target)
+        loss, part_losses = self.compute_losses(batch_output, batch_target)
   
         # Retrieve current learning rate
         lr = self.optimizers().param_groups[0]['lr']
