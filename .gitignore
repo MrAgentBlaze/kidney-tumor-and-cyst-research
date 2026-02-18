@@ -1,9 +1,54 @@
+# Python
 __pycache__/
-.ipynb_checkpoints/
-checkpoint*/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# Logs and checkpoints
 logs*/
-tb_logs*/
+tb_logs/
+checkpoints*/
 lightning_logs/
-core
+*.ckpt
+
+# Jupyter Notebooks
 notebooks/
 *.ipynb
+.ipynb_checkpoints/
+
+# Data and results
+data/
+results/
+roi/
+*.pkl
+*.pt
+*.npy
+*.npz
+*.nii
+*.nii.gz
+
+# Images, PDFs, videos
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.pdf
+*.mp4
+*.avi
+videos/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# System
+core
