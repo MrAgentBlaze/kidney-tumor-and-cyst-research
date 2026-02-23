@@ -25,10 +25,11 @@ from utils import (
 from model import MinkUNetConvNeXtV2, DenseUNetConvNeXtV2
 
 
-def setup_dataset(args, stage2, min_hu, max_hu, dataset_name):
+def setup_dataset(args, stage2, min_hu, max_hu, dataset_path, dataset_name):
     args.stage2 = stage2
     args.min_hu = min_hu
     args.max_hu = max_hu
+    args.dataset_path = dataset_path
     args.dataset_name = dataset_name
     return SparseDataset(args)
 
@@ -110,8 +111,10 @@ def main():
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 
-    dataset_lowres = setup_dataset(args, False, -53.4, 283.2, "kits23_large_processed")
-    dataset_highres = setup_dataset(args, True, -300, 500, "kits23_processed_highres")
+    dataset_lowres = setup_dataset(args, False, -53.4, 283.2, "/scratch2/salonso/medical/medical_data/{}/*", "kits23_large_processed")
+    dataset_highres = setup_dataset(args, True, -300, 500, "/scratch2/salonso/medical/medical_data/{}/*", "kits23_processed_highres11_all")
+
+    print(len(dataset_lowres), len(dataset_highres))
 
     loader_lowres = create_dataloader(dataset_lowres)
     loader_highres = create_dataloader(dataset_highres)
@@ -128,8 +131,8 @@ def main():
         net_dw.eval()
 
         results = {}
-        results["low_res_channelwise_cpu"] = run_tests(
-            net_cw, loader_lowres, device_cpu, "Low-res channelwise [CPU]", True)
+        #results["low_res_channelwise_cpu"] = run_tests(
+        #    net_cw, loader_lowres, device_cpu, "Low-res channelwise [CPU]", True)
         results["low_res_channelwise_gpu"] = run_tests(
             net_cw, loader_lowres, device_gpu, "Low-res channelwise [GPU]", True, use_gpu=True)
         results["low_res_depthwise_gpu"] = run_tests(

@@ -50,5 +50,9 @@ videos/
 *~
 .DS_Store
 
+# Paper and revision
+paper/
+revision/
+
 # System
 core
