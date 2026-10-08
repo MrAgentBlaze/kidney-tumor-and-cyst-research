@@ -74,6 +74,10 @@ class SparseDataset(Dataset):
             empty_min=self.hu_range[0], empty_max=self.hu_range[1],
         )
 
+        print("Dense voxels:", image[0].numel())
+        print("Sparse voxels:", c.shape[0])
+        print("Sparsity:", c.shape[0] / image[0].numel())
+
         # Remap labels: tumour (2) is more exclusive than cyst (3)
         mask_tumour, mask_cyst = y == 2, y == 3
         y[mask_tumour] = 3
