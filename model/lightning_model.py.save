@@ -44,27 +44,6 @@ class SparseLightningModel(pl.LightningModule):
         for step, (output, target) in enumerate(zip(batch_output, batch_target)):
             weight = 1 / (2 ** step)
 
-            if not getattr(self, "_coord_diag_done", False):
-                print("\n=== Coordinate alignment diagnostic ===")
-                print("Number of output stages:", len(batch_output))
-                print("Number of target stages:", len(batch_target))
-
-                for stage, (out, tgt) in enumerate(zip(batch_output, batch_target)):
-                    print(f"Stage {stage}:")
-                    print("  Output shape:", tuple(out.coordinates.shape))
-                    print("  Target shape:", tuple(tgt.coordinates.shape))
-                    print("  Same coordinate map:",
-                        out.coordinate_map_key == tgt.coordinate_map_key)
-
-                    if out.coordinates.shape == tgt.coordinates.shape:
-                        print("  Same coordinate order:",
-                            torch.equal(out.coordinates, tgt.coordinates))
-                    else:
-                        print("  Same coordinate order: False (different shapes)")
-
-                self._coord_diag_done = True
-                print("=== End diagnostic ===\n")
-                
             # Align output and target by sorting coordinates
             sorted_indices_output = argsort_sparse_tensor(output)
             sorted_indices_target = argsort_sparse_tensor(target)
@@ -196,4 +175,6 @@ class SparseLightningModel(pl.LightningModule):
         }
 
     def lr_scheduler_step(self, scheduler, *args):
-        scheduler.step()
+        scheduler.step(
+
+
