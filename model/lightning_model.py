@@ -64,7 +64,7 @@ class SparseLightningModel(pl.LightningModule):
 
                 self._coord_diag_done = True
                 print("=== End diagnostic ===\n")
-                
+            
             # Align output and target by sorting coordinates
             sorted_indices_output = argsort_sparse_tensor(output)
             sorted_indices_target = argsort_sparse_tensor(target)
@@ -75,6 +75,7 @@ class SparseLightningModel(pl.LightningModule):
 
             sorted_feats_output = output.F[sorted_indices_output]
             sorted_feats_target = target.F[sorted_indices_target]
+
             decom_feats_output = output.decomposed_features
             decom_feats_target = target.decomposed_features
 
