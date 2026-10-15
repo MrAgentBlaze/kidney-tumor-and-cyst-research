@@ -1,0 +1,50 @@
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/MinkowskiEngine-0.5.4-py3.12-linux-x86_64.egg/MinkowskiEngine/__init__.py:36: UserWarning: The environment variable `OMP_NUM_THREADS` not set. MinkowskiEngine will automatically set `OMP_NUM_THREADS=16`. If you want to set `OMP_NUM_THREADS` manually, please export it on the command line before running a python script. e.g. `export OMP_NUM_THREADS=12; python your_program.py`. It is recommended to set it below 24.
+  warnings.warn(
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/optim/optim_factory.py:7: FutureWarning: Importing from timm.optim.optim_factory is deprecated, please import via timm.optim
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.optim", FutureWarning)
+PyTorch: 2.6.0+cu126
+MinkowskiEngine: 0.5.4
+GPU: NVIDIA GeForce RTX 4060 Ti
+Loading original KiTS23 case 00295 from 00295.pkl...
+Dense voxels: 7975998
+Sparse voxels: 2007951
+Sparsity: 0.2517491854937777
+Initializing original model...
+Building sparse tensors...
+After sparse tensor construction: allocated=597.5 MiB, reserved=662.0 MiB, peak=628.1 MiB
+PHASE 1: Forward pass with gradients enabled...
+After forward: allocated=16664.1 MiB, reserved=17572.0 MiB, peak=17326.8 MiB
+PHASE 2: Actual loss calculation...
+
+=== Coordinate alignment diagnostic ===
+Number of output stages: 3
+Number of target stages: 3
+Stage 0:
+  Output shape: (2007951, 4)
+  Target shape: (2007951, 4)
+  Same coordinate map: True
+  Same coordinate order: True
+Stage 1:
+  Output shape: (363955, 4)
+  Target shape: (363955, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+Stage 2:
+  Output shape: (66491, 4)
+  Target shape: (66491, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+=== End diagnostic ===
+
+Loss: 5.145590305328369
+After loss: allocated=16865.4 MiB, reserved=17580.0 MiB, peak=17326.8 MiB
+PHASE 3: Backward pass (NO optimizer step)...
+After backward: allocated=3299.4 MiB, reserved=19056.0 MiB, peak=18362.3 MiB
+Parameters with gradients: 522/548
+PHASE 4: AdamW optimizer step...
+Before optimizer step: allocated=3299.4 MiB, reserved=19056.0 MiB, peak=18362.3 MiB
+After optimizer step: allocated=3506.0 MiB, reserved=19134.0 MiB, peak=18362.3 MiB
+OPTIMIZER STEP TEST SUCCEEDED.
+Diagnostic cleanup complete.

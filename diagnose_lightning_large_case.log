@@ -1,0 +1,51 @@
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/MinkowskiEngine-0.5.4-py3.12-linux-x86_64.egg/MinkowskiEngine/__init__.py:36: UserWarning: The environment variable `OMP_NUM_THREADS` not set. MinkowskiEngine will automatically set `OMP_NUM_THREADS=16`. If you want to set `OMP_NUM_THREADS` manually, please export it on the command line before running a python script. e.g. `export OMP_NUM_THREADS=12; python your_program.py`. It is recommended to set it below 24.
+  warnings.warn(
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/optim/optim_factory.py:7: FutureWarning: Importing from timm.optim.optim_factory is deprecated, please import via timm.optim
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.optim", FutureWarning)
+PyTorch: 2.6.0+cu126
+Lightning: 2.6.6
+CUDA available: True
+Loading fixed case 00223; augmentation disabled.
+Starting one-batch Lightning test.
+No validation, checkpointing, or external loggers.
+Gradient accumulation: 1
+Using bfloat16 Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+`Trainer(limit_train_batches=1)` was configured so 1 batch per epoch will be used.
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/pytorch_lightning/trainer/configuration_validator.py:70: You defined a `validation_step` but have no `val_dataloader`. Skipping val loop.
+You are using a CUDA device ('NVIDIA GeForce RTX 4060 Ti') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/pytorch_lightning/trainer/connectors/data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=23` in the `DataLoader` to improve performance.
+Training: |          | 0/? [00:00<?, ?it/s]Training: |          | 0/? [00:00<?, ?it/s]Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s]Dense voxels: 43338050
+Sparse voxels: 5120278
+Sparsity: 0.11814740164820521
+
+=== Coordinate alignment diagnostic ===
+Number of output stages: 3
+Number of target stages: 3
+Stage 0:
+  Output shape: (5120278, 4)
+  Target shape: (5120278, 4)
+  Same coordinate map: True
+  Same coordinate order: True
+Stage 1:
+  Output shape: (859894, 4)
+  Target shape: (859894, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+Stage 2:
+  Output shape: (149987, 4)
+  Target shape: (149987, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+=== End diagnostic ===
+
+Epoch 0: 100%|██████████| 1/1 [03:42<00:00,  0.00it/s]Epoch 0: 100%|██████████| 1/1 [03:42<00:00,  0.00it/s, loss/train_total=5.050, lr=0.000]Epoch 0: 100%|██████████| 1/1 [03:42<00:00,  0.00it/s, loss/train_total=5.050, lr=0.000]`Trainer.fit` stopped: `max_epochs=1` reached.
+Epoch 0: 100%|██████████| 1/1 [03:42<00:00,  0.00it/s, loss/train_total=5.050, lr=0.000]
+
+DIAGNOSTIC RESULT: Lightning completed one batch.
+Diagnostic cleanup complete.
