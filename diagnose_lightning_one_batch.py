@@ -52,7 +52,7 @@ def main():
     ]
     if len(matches) != 1:
         raise RuntimeError(
-            f"Expected exactly one 00295.pkl, found {len(matches)}"
+            f"Expected exactly one 00223.pkl, found {len(matches)}"
         )
 
     loader = DataLoader(

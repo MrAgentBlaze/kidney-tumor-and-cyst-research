@@ -1,37 +1,35 @@
 import torch
 
-# Simulate 3D sparse coordinates: batch index + x, y, z.
-coords = torch.tensor([
-    [0, 244, 244, 721],
-    [0,   0,   0,   0],
-    [0, 100, 200, 300],
-    [0, 244, 244, 720],
-    [0,   1,   0,   0],
-], dtype=torch.int32)
 
-max_val = coords.max() + 1
+def check_sort(coords):
+    coords = coords.to(torch.int64)
+    max_val = coords.max() + 1
 
-multipliers = torch.tensor(
-    [max_val ** i for i in reversed(range(coords.shape[1]))],
-    device=coords.device,
-)
+    multipliers = torch.tensor(
+        [max_val ** i for i in reversed(range(coords.shape[1]))],
+        device=coords.device,
+        dtype=torch.int64,
+    )
 
-encoded_coords = (coords * multipliers).sum(dim=1)
-indices = torch.argsort(encoded_coords)
+    encoded = (coords * multipliers).sum(dim=1)
+    indices = torch.argsort(encoded)
 
-print("Coordinate dtype:", coords.dtype)
-print("Multiplier dtype:", multipliers.dtype)
-print("Encoded-key dtype:", encoded_coords.dtype)
-print("Multipliers:", multipliers.tolist())
-print("Encoded keys:", encoded_coords.tolist())
-print("Sorted indices:", indices.tolist())
-print("Sorted coordinates:")
-print(coords[indices])
+    sorted_coords = coords[indices]
+    lexicographic = sorted(
+        range(len(coords)),
+        key=lambda i: tuple(coords[i].tolist()),
+    )
 
-# Compare with an independent lexicographic sort.
-expected = sorted(
-    range(len(coords)),
-    key=lambda i: tuple(coords[i].tolist())
-)
-print("Expected indices:", expected)
-print("Sorting correct:", indices.tolist() == expected)
+    print("Device:", coords.device)
+    print("Coordinate shape:", tuple(coords.shape))
+    print("Max coordinate:", coords.max().item())
+    print("Keys unique:", encoded.unique().numel() == encoded.numel())
+    print("Lexicographic order correct:", indices.tolist() == lexicographic)
+
+
+# Simulate a large set of 3D sparse coordinates plus batch index.
+torch.manual_seed(42)
+coords = torch.randint(0, 722, (100_000, 4), dtype=torch.int32)
+coords[:, 0] = torch.randint(0, 2, (100_000,), dtype=torch.int32)
+
+check_sort(coords)

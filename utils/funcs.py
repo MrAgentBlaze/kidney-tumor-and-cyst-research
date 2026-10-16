@@ -135,6 +135,7 @@ def arrange_truth(data, device):
 def argsort_sparse_tensor(tensor):
     """Return indices that sort a sparse tensor by its coordinates."""
     coords = tensor.coordinates.to(torch.int64)
+
     max_val = coords.max() + 1
 
     multipliers = torch.tensor(

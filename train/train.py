@@ -134,8 +134,6 @@ def main():
             log_every_n_steps=args.log_every_n_steps,
             deterministic=True,
             accumulate_grad_batches=args.accum_grad_batches,
-            limit_train_batches=1,
-            limit_val_batches=0,
             num_sanity_val_steps=0,
         )
 
