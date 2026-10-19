@@ -48,7 +48,7 @@ print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
 # Load case 00223 without training augmentation.
 dataset = SparseDataset(args)
-target_file = os.path.abspath(os.path.join("data", "kits23_large_processed", "00223.pkl"))
+target_file = os.path.abspath(os.path.join("data", "kits23_large_processed", "00516.pkl"))
 matches = [
     i for i, file_path in enumerate(dataset.data_files)
     if os.path.abspath(file_path) == os.path.abspath(target_file)
@@ -56,7 +56,7 @@ matches = [
 if not matches:
     raise FileNotFoundError(f"Could not find processed file: {target_file}")
 
-print("Loading original KiTS23 case 00223 from 00223.pkl...", flush=True)
+print("Loading original KiTS23 case 00516 from 00516.pkl...", flush=True)
 sample = dataset[matches[0]]
 batch = {
     "idx": [sample["idx"]],

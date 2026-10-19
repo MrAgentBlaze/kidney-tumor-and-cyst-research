@@ -125,6 +125,8 @@ def main():
 
         trainer = pl.Trainer(
             max_epochs=args.epochs,
+            limit_train_batches=2,
+            limit_val_batches=1,
             callbacks=[checkpoint_callback, progress_bar],
             accelerator="gpu",
             devices=nb_gpus,

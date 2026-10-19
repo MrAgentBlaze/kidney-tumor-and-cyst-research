@@ -1,0 +1,240 @@
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/MinkowskiEngine-0.5.4-py3.12-linux-x86_64.egg/MinkowskiEngine/__init__.py:36: UserWarning: The environment variable `OMP_NUM_THREADS` not set. MinkowskiEngine will automatically set `OMP_NUM_THREADS=16`. If you want to set `OMP_NUM_THREADS` manually, please export it on the command line before running a python script. e.g. `export OMP_NUM_THREADS=12; python your_program.py`. It is recommended to set it below 24.
+  warnings.warn(
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/timm/optim/optim_factory.py:7: FutureWarning: Importing from timm.optim.optim_factory is deprecated, please import via timm.optim
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.optim", FutureWarning)
+Using bfloat16 Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+`Trainer(limit_train_batches=1)` was configured so 1 batch per epoch will be used.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/pytorch_lightning/utilities/model_summary/model_summary.py:242: Precision bf16-mixed is not supported by the model summary.  Estimated model size in MB will not be accurate. Using 32 bits instead.
+
+  | Name  | Type               | Params | Mode  | FLOPs
+-------------------------------------------------------------
+0 | model | MinkUNetConvNeXtV2 | 27.5 M | train | 0    
+-------------------------------------------------------------
+27.5 M    Trainable params
+0         Non-trainable params
+27.5 M    Total params
+109.895   Total estimated model params size (MB)
+670       Modules in train mode
+0         Modules in eval mode
+0         Total Flops
+
+- Arguments:
+  target: -1
+  train: True
+  stage2: False
+  sigmoid: True
+  sparse: True
+  roi: False
+  dataset_name: kits23_large_processed
+  dataset_path: data/{}/*
+  min_hu: -53.4
+  max_hu: 283.2
+  ds_steps: 3
+  eps: 1e-12
+  batch_size: 1
+  folds: 2
+  epochs: 1
+  num_workers: 8
+  lr: 0.0005
+  accum_grad_batches: 1
+  warmup_steps: 1
+  cosine_annealing_steps: 400
+  weight_decay: 1e-05
+  beta1: 0.9
+  beta2: 0.95
+  losses: ['dice']
+  save_dir: logs_benchmark_retry
+  name: smoke_lightning_retry_20261019
+  log_every_n_steps: 1
+  save_top_k: 1
+  checkpoint_path: checkpoints_benchmark_retry
+  checkpoint_name: smoke_lightning_retry_20261019
+  load_checkpoint: None
+  gpus: ['0']
+Fold 1
+  lr                = 0.0005
+  scheduler_steps   = 97600
+  warmup_steps      = 244
+  start_cosine_step = -97356
+  eff. batch size   = 1
+  Total trainable parameters: 27473696
+Training: |          | 0/? [00:00<?, ?it/s]Training: |          | 0/? [00:00<?, ?it/s]Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s]
+=== Coordinate alignment diagnostic ===
+Number of output stages: 3
+Number of target stages: 3
+Stage 0:
+  Output shape: (2855399, 4)
+  Target shape: (2855399, 4)
+  Same coordinate map: True
+  Same coordinate order: True
+Stage 1:
+  Output shape: (434162, 4)
+  Target shape: (434162, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+Stage 2:
+  Output shape: (70409, 4)
+  Target shape: (70409, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+=== End diagnostic ===
+
+Epoch 0: 100%|##########| 1/1 [00:27<00:00,  0.04it/s]Epoch 0: 100%|##########| 1/1 [00:27<00:00,  0.04it/s, v_num=0, loss/train_total=5.160, lr=0.000]Epoch 0: 100%|##########| 1/1 [00:27<00:00,  0.04it/s, v_num=0, loss/train_total=5.160, lr=0.000]/home/big_data/venvs/kidney-tumor-and-cyst/lib/python3.12/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:588: `ModelCheckpoint(monitor='loss/val_total')` could not find the monitored key in the returned metrics: ['loss/train_total', 'loss/train_dice', 'loss/train_step0', 'loss/train_step1', 'loss/train_step2', 'loss/train_o0', 'loss/train_o1', 'loss/train_o2', 'lr', 'epoch', 'step']. HINT: Did you call `log('loss/val_total', value)` in the `LightningModule`?
+`Trainer.fit` stopped: `max_epochs=1` reached.
+Epoch 0: 100%|##########| 1/1 [00:27<00:00,  0.04it/s, v_num=0, loss/train_total=5.160, lr=0.000]Dense voxels: 9711702
+Sparse voxels: 2207864
+Sparsity: 0.22734058355579692
+Dense voxels: 6171813
+Sparse voxels: 1385544
+Sparsity: 0.2244954602480665
+Dense voxels: 7600460
+Sparse voxels: 1538647
+Sparsity: 0.20244129960555018
+Dense voxels: 4755456
+Sparse voxels: 1268096
+Sparsity: 0.26666128337639966
+Dense voxels: 3571506
+Sparse voxels: 1415834
+Sparsity: 0.396424925507615
+Dense voxels: 16320528
+Sparse voxels: 2663207
+Sparsity: 0.16318142403235975
+Dense voxels: 8774118
+Sparse voxels: 2989652
+Sparsity: 0.3407353308902388
+Dense voxels: 5699584
+Sparse voxels: 1546438
+Sparsity: 0.27132471422475746
+Dense voxels: 5700414
+Sparse voxels: 1336513
+Sparsity: 0.234458935789576
+Dense voxels: 10752453
+Sparse voxels: 1954061
+Sparsity: 0.1817316476528658
+Dense voxels: 7441875
+Sparse voxels: 1589741
+Sparsity: 0.21362102964642646
+Dense voxels: 7600552
+Sparse voxels: 2135240
+Sparsity: 0.28093222702772114
+Dense voxels: 11325888
+Sparse voxels: 2855399
+Sparsity: 0.25211259373216477
+Dense voxels: 11049696
+Sparse voxels: 1719726
+Sparsity: 0.15563559395661203
+Dense voxels: 8682392
+Sparse voxels: 2782010
+Sparsity: 0.3204197645072925
+Dense voxels: 5247680
+Sparse voxels: 1316631
+Sparsity: 0.25089773004451493
+Dense voxels: 5159232
+Sparse voxels: 1353471
+Sparsity: 0.2623396272933646
+Using bfloat16 Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+`Trainer(limit_train_batches=1)` was configured so 1 batch per epoch will be used.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+
+  | Name  | Type               | Params | Mode  | FLOPs
+-------------------------------------------------------------
+0 | model | MinkUNetConvNeXtV2 | 27.5 M | train | 0    
+-------------------------------------------------------------
+27.5 M    Trainable params
+0         Non-trainable params
+27.5 M    Total params
+109.895   Total estimated model params size (MB)
+670       Modules in train mode
+0         Modules in eval mode
+0         Total Flops
+
+Fold 2
+  lr                = 0.0005
+  scheduler_steps   = 98000
+  warmup_steps      = 245
+  start_cosine_step = -97755
+  eff. batch size   = 1
+  Total trainable parameters: 27473696
+Training: |          | 0/? [00:00<?, ?it/s]Training: |          | 0/? [00:00<?, ?it/s]Epoch 0:   0%|          | 0/1 [00:00<?, ?it/s]
+=== Coordinate alignment diagnostic ===
+Number of output stages: 3
+Number of target stages: 3
+Stage 0:
+  Output shape: (1555406, 4)
+  Target shape: (1555406, 4)
+  Same coordinate map: True
+  Same coordinate order: True
+Stage 1:
+  Output shape: (247950, 4)
+  Target shape: (247950, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+Stage 2:
+  Output shape: (39843, 4)
+  Target shape: (39843, 4)
+  Same coordinate map: True
+  Same coordinate order: False
+=== End diagnostic ===
+
+Epoch 0: 100%|##########| 1/1 [00:03<00:00,  0.25it/s]Epoch 0: 100%|##########| 1/1 [00:03<00:00,  0.25it/s, v_num=0, loss/train_total=5.120, lr=0.000]Epoch 0: 100%|##########| 1/1 [00:04<00:00,  0.25it/s, v_num=0, loss/train_total=5.120, lr=0.000]`Trainer.fit` stopped: `max_epochs=1` reached.
+Epoch 0: 100%|##########| 1/1 [00:04<00:00,  0.25it/s, v_num=0, loss/train_total=5.120, lr=0.000]Dense voxels: 8994816
+Sparse voxels: 3574348
+Sparsity: 0.3973786678904827
+Dense voxels: 6591676
+Sparse voxels: 1985780
+Sparsity: 0.30125570492239
+Dense voxels: 3076736
+Sparse voxels: 1286019
+Sparsity: 0.4179815882805675
+Dense voxels: 5000000
+Sparse voxels: 1370379
+Sparsity: 0.2740758
+Dense voxels: 5022500
+Sparse voxels: 1388117
+Sparsity: 0.2763796913887506
+Dense voxels: 11335320
+Sparse voxels: 2582544
+Sparsity: 0.22783159187389504
+Dense voxels: 2187000
+Sparse voxels: 709912
+Sparsity: 0.32460539551897577
+Dense voxels: 6969116
+Sparse voxels: 1158416
+Sparsity: 0.16622136867861004
+Dense voxels: 14605920
+Sparse voxels: 3223012
+Sparsity: 0.22066477154468872
+Dense voxels: 12985308
+Sparse voxels: 2527456
+Sparsity: 0.19463966507378955
+Dense voxels: 9261147
+Sparse voxels: 1335038
+Sparsity: 0.14415471431346463
+Dense voxels: 7153031
+Sparse voxels: 1864806
+Sparsity: 0.260701512407817
+Dense voxels: 4976832
+Sparse voxels: 1555406
+Sparsity: 0.31252933593096976
+Dense voxels: 13586848
+Sparse voxels: 1966316
+Sparsity: 0.14472201352366643
+Dense voxels: 3160256
+Sparse voxels: 1293336
+Sparsity: 0.4092503898418356
+Dense voxels: 9420792
+Sparse voxels: 2099434
+Sparsity: 0.22285111485318856
+Dense voxels: 4863232
+Sparse voxels: 1163149
+Sparsity: 0.23917201564720744
+
