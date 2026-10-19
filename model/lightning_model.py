@@ -106,7 +106,17 @@ class SparseLightningModel(pl.LightningModule):
 
                 losses[i] += weight * curr_loss
 
-        part_losses = torch.tensor(part_losses)
+        part_losses = torch.tensor(
+            [
+                [
+                    [value.detach().item() if isinstance(value, torch.Tensor) else value
+                    for value in step_losses]
+                    for step_losses in loss_steps
+                ]
+                for loss_steps in part_losses
+            ],
+            dtype=torch.float32,
+        )
         total_loss = sum(losses)
         return total_loss, part_losses
 
