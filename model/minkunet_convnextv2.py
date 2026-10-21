@@ -3,6 +3,7 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 from timm.models.layers import trunc_normal_
 from .utils import MinkowskiLayerNorm, MinkowskiGRN, MinkowskiDropPath
+from torch.utils.checkpoint import checkpoint
 
 from MinkowskiEngine import (
     MinkowskiConvolution,
@@ -82,6 +83,7 @@ class MinkUNetConvNeXtV2(nn.Module):
     def __init__(self, in_channels, out_channels, D=3, args=None):
         super().__init__()
         self.ds_steps = args.ds_steps
+        self.activation_checkpointing = True
 
         # Encoder
         depths = [2, 4, 4, 8, 8, 8]
@@ -161,6 +163,35 @@ class MinkUNetConvNeXtV2(nn.Module):
 
         self.apply(_init_weights)
 
+    def _run_stage(self, stage, x):
+        """Run a stage normally or with activation checkpointing."""
+        if (
+            self.training
+            and getattr(self, "activation_checkpointing", False)
+            and x.F.requires_grad
+        ):
+            def run_block(features):
+                sparse_input = ME.SparseTensor(
+                    features=features,
+                    coordinate_map_key=x.coordinate_map_key,
+                    coordinate_manager=x.coordinate_manager,
+                )
+                return stage(sparse_input).F
+
+            features = checkpoint(
+                run_block,
+                x.F,
+                use_reentrant=False,
+            )
+
+            return ME.SparseTensor(
+                features=features,
+                coordinate_map_key=x.coordinate_map_key,
+                coordinate_manager=x.coordinate_manager,
+            )
+
+        return stage(x)
+
     def forward(self, x, y):
         # Generate downsampled labels for deep supervision
         ys = []
@@ -172,7 +203,7 @@ class MinkUNetConvNeXtV2(nn.Module):
         x = self.stem(x)
         x_enc = []
         for i in range(self.nb_elayers):
-            x = self.encoder_layers[i](x)
+            x = self._run_stage(self.encoder_layers[i], x)
             if i < self.nb_elayers - 1:
                 x_enc.append(x)
                 x = self.downsample_layers[i](x)
@@ -183,7 +214,7 @@ class MinkUNetConvNeXtV2(nn.Module):
         for i in range(self.nb_dlayers):
             x = self.upsample_layers[i](x)
             x = x + x_enc[i]
-            x = self.decoder_layers[i](x)
+            x = self._run_stage(self.decoder_layers[i], x)
             if i >= (self.nb_dlayers - self.ds_steps):
                 out_cl = self.cls_layers[i](x)
                 out_cls.insert(0, out_cl)

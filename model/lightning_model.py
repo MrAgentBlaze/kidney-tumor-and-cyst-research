@@ -25,6 +25,7 @@ class SparseLightningModel(pl.LightningModule):
         self.weight_decay = args.weight_decay
         self.eps = args.eps
         self.roi = args.roi
+        self._memory_diagnostic = True
 
     def on_train_start(self):
         # Fix: https://github.com/Lightning-AI/pytorch-lightning/issues/17296
@@ -32,6 +33,49 @@ class SparseLightningModel(pl.LightningModule):
 
     def forward(self, x, y):
         return self.model(x, y)
+    
+
+    def _memory_snapshot(self, stage, batch_idx):
+        if not torch.cuda.is_available() or not getattr(
+            self, "_memory_diagnostic", False
+        ):
+            return
+
+        device = torch.cuda.current_device()
+        torch.cuda.synchronize(device)
+
+        allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)
+        reserved = torch.cuda.memory_reserved(device) / (1024 ** 2)
+        peak = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+        free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+
+        print(
+            f"[GPU-MEM] batch={batch_idx} stage={stage} "
+            f"allocated={allocated:.0f}MiB "
+            f"reserved={reserved:.0f}MiB "
+            f"peak_allocated={peak:.0f}MiB "
+            f"device_free={free_bytes / (1024 ** 2):.0f}MiB "
+            f"device_total={total_bytes / (1024 ** 2):.0f}MiB",
+            flush=True,
+        )
+
+    def on_before_backward(self, loss):
+        if getattr(self, "_memory_diagnostic", False):
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+                torch.cuda.synchronize(device)
+                torch.cuda.reset_peak_memory_stats(device)
+                self._memory_snapshot(
+                    "before_backward",
+                    getattr(self, "_memory_batch_idx", self.global_step),
+                )
+
+    def on_after_backward(self):
+        if getattr(self, "_memory_diagnostic", False):
+            self._memory_snapshot(
+                "after_backward",
+                getattr(self, "_memory_batch_idx", self.global_step),
+            )
 
     def _arrange_batch(self, batch):
         batch_input = arrange_sparse_minkowski(batch, self.device)
@@ -120,15 +164,35 @@ class SparseLightningModel(pl.LightningModule):
         total_loss = sum(losses)
         return total_loss, part_losses
 
+
     def common_step(self, batch):
         batch_size = len(batch["c"])
         batch_input, batch_target = self._arrange_batch(batch)
+
+        diagnostic = getattr(self, "_memory_diagnostic", False)
+        batch_idx = getattr(self, "_memory_batch_idx", self.global_step)
+
+        if diagnostic and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            self._memory_snapshot("before_forward", batch_idx)
+
         batch_output, batch_target = self.forward(batch_input, batch_target)
+
+        if diagnostic:
+            self._memory_snapshot("after_forward", batch_idx)
+            torch.cuda.reset_peak_memory_stats()
+
         loss, part_losses = self.compute_losses(batch_output, batch_target)
+
+        if diagnostic:
+            self._memory_snapshot("after_loss", batch_idx)
+
         lr = self.optimizers().param_groups[0]["lr"]
         return loss, part_losses, batch_size, lr
 
+
     def training_step(self, batch, batch_idx):
+        self._memory_batch_idx = batch_idx
         torch.cuda.empty_cache()
         loss, part_losses, batch_size, lr = self.common_step(batch)
 
@@ -152,6 +216,7 @@ class SparseLightningModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        self._memory_batch_idx = batch_idx
         torch.cuda.empty_cache()
         loss, part_losses, batch_size, lr = self.common_step(batch)
 
