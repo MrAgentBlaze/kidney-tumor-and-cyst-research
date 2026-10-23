@@ -14,7 +14,7 @@ from dataset import SparseDataset
 from model import MinkUNetConvNeXtV2, SparseLightningModel
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.loggers.tensorboard import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 
 
 torch.set_float32_matmul_precision("medium")
@@ -72,9 +72,6 @@ def main():
 
         ckpt_dir = os.path.join(
             args.checkpoint_path, f"{args.checkpoint_name}_{fold + 1}")
-        if os.path.isdir(ckpt_dir):
-            print("  Already completed, skipping.")
-            continue
 
         # Compute scheduler parameters
         nb_batches = len(train_loader)
@@ -112,6 +109,11 @@ def main():
             dirpath=ckpt_dir, save_last=True,
             save_top_k=args.save_top_k, monitor="loss/val_total",
         )
+        early_stopping = EarlyStopping(
+            monitor="loss/val_total",
+            mode="min",
+            patience=10,
+        )
         progress_bar = CustomProgressBar()
 
         # Resume from checkpoint if available
@@ -125,9 +127,7 @@ def main():
 
         trainer = pl.Trainer(
             max_epochs=args.epochs,
-            limit_train_batches=2,
-            limit_val_batches=1,
-            callbacks=[checkpoint_callback, progress_bar],
+            callbacks=[checkpoint_callback, early_stopping, progress_bar],
             accelerator="gpu",
             devices=nb_gpus,
             precision="bf16-mixed" if pl_major >= 2 else 32,
