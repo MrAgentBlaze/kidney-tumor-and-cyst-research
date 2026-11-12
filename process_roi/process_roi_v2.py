@@ -17,6 +17,10 @@ import numpy as np
 import torch
 import tqdm
 import scipy.ndimage as ndi
+import nibabel as nib
+
+from monai.data import MetaTensor
+from monai.transforms import ResampleToMatch
 
 from monai.transforms import (
     EnsureChannelFirstd,
@@ -233,6 +237,61 @@ def validate_affine(large_image, transformed_image, case_id):
         )
 
 
+def create_reference_grid(crop, reference_affine):
+    """
+    Create a local destination grid aligned with the global
+    high-resolution reference grid.
+
+    The destination covers the complete physical extent of
+    the source crop.
+    """
+
+    crop_affine = crop.affine.detach().cpu().numpy()
+    crop_shape = np.asarray(crop.shape[1:], dtype=np.int64)
+
+    # Transform all eight voxel-center corners into
+    # global reference-grid coordinates.
+    corners = np.array([
+        [i, j, k, 1.0]
+        for i in (0, crop_shape[0] - 1)
+        for j in (0, crop_shape[1] - 1)
+        for k in (0, crop_shape[2] - 1)
+    ]).T
+
+    world_corners = crop_affine @ corners
+
+    reference_coordinates = (
+        np.linalg.inv(reference_affine) @ world_corners
+    )[:3]
+
+    # Include every source voxel center in the destination.
+    grid_min = np.floor(
+        reference_coordinates.min(axis=1)
+    ).astype(np.int64)
+
+    grid_max = np.ceil(
+        reference_coordinates.max(axis=1)
+    ).astype(np.int64)
+
+    grid_shape = grid_max - grid_min + 1
+
+    local_affine = reference_affine.copy()
+
+    local_affine[:3, 3] = (
+        reference_affine[:3, 3]
+        + reference_affine[:3, :3] @ grid_min
+    )
+
+    reference_grid = MetaTensor(
+        torch.zeros(
+            (1, *grid_shape.tolist()),
+            dtype=torch.float32,
+        ),
+        affine=local_affine,
+    )
+
+    return reference_grid, grid_min, grid_max
+
 # ============================================================
 # CASE PROCESSING
 # ============================================================
@@ -363,12 +422,6 @@ def process_case(
             probabilities.max(dim=1).values >= ROI_THRESHOLD
         ).float()
 
-    print("Stage 1 spatial shape:", spatial_shape)
-    print(
-        "Predicted ROI voxels:",
-        torch.count_nonzero(roi_label).item(),
-    )
-
     if torch.count_nonzero(roi_label) == 0:
         print("WARNING: Empty Stage 1 ROI. Skipping case.")
         return 0
@@ -393,6 +446,35 @@ def process_case(
     # --------------------------------------------------------
 
     data_dict_pli = transforms["orientation"](data_dict_ori)
+
+    from monai.data.utils import zoom_affine, compute_shape_offset
+
+    # Calculate the full-volume high-resolution reference grid
+    # without allocating the resampled image.
+
+    reference_image = data_dict_pli["image"]
+
+    input_affine = (
+        reference_image.affine.detach().cpu().numpy()
+    )
+
+    input_shape = tuple(reference_image.shape[1:])
+
+    reference_affine = zoom_affine(
+        input_affine,
+        np.asarray(HIGHRES_SPACING, dtype=float),
+        diagonal=False,
+    )
+
+    reference_shape, reference_offset = compute_shape_offset(
+        input_shape,
+        input_affine,
+        reference_affine,
+        scale_extent=False,
+    )
+
+    reference_affine[:3, 3] = reference_offset[:3]
+
     data_dict_spa = transforms["spacing_large"](data_dict_pli)
 
     if tuple(data_dict_spa["label"].shape) != tuple(roi_label.shape):
@@ -469,27 +551,93 @@ def process_case(
     )
 
     # --------------------------------------------------------
-    # Resample original image and ROI to high resolution
+    # Crop components first, then resample each crop
     # --------------------------------------------------------
 
-    small_ori = transforms["spacing_small"](data_dict_pli)
+    # Attach the inverse-transformed ROI to the original CT.
+    # Both are in the original CT coordinate space.
+    data_dict_ori["roi"] = prediction
 
-    small_roi = transforms["spacing_small"](data_dict_invspa)
+    # Determine original voxel spacing and orientation.
+    original_affine = prediction.affine.detach().cpu().numpy()
 
-    small_ori["roi"] = small_roi["label"]
+    original_axis_codes = nib.aff2axcodes(original_affine)
 
-    if small_ori["image"].shape[1:] != small_ori["roi"].shape[1:]:
-        raise RuntimeError(
-            f"{case_id}: High-resolution image and ROI shapes differ."
-        )
+    original_spacing = np.linalg.norm(
+        original_affine[:3, :3],
+        axis=0,
+    )
 
-    # --------------------------------------------------------
-    # Generate one crop per connected component
-    # --------------------------------------------------------
+    # Convert the existing high-resolution voxel margins
+    # into physical millimeters.
+    target_margin_mm = (
+        np.asarray(ROI_MARGIN, dtype=float)
+        * np.asarray(HIGHRES_SPACING, dtype=float)
+    )
 
+    # Axis groups:
+    # Left/Right = 0, Posterior/Anterior = 1,
+    # Inferior/Superior = 2.
+    axis_group = {
+        "L": 0,
+        "R": 0,
+        "P": 1,
+        "A": 1,
+        "I": 2,
+        "S": 2,
+    }
+
+    # Target grid orientation is PLI:
+    # P -> axis 0, L -> axis 1, I -> axis 2.
+    target_axis_for_group = {
+        1: 0,
+        0: 1,
+        2: 2,
+    }
+
+    margin_original = tuple(
+        int(np.ceil(
+            target_margin_mm[
+                target_axis_for_group[axis_group[code]]
+            ] / original_spacing[axis]
+        )) + 2
+        for axis, code in enumerate(original_axis_codes)
+    )
+
+    # Move the original CT, segmentation, and ROI to CPU.
+    data_dict_ori_cpu = {
+        key: value.cpu() if isinstance(value, torch.Tensor) else value
+        for key, value in data_dict_ori.items()
+    }
+
+    # Release GPU references that are no longer needed.
+    del data_dict_ori
+    del data_dict_invspa
+    del data_dict_invpli
+    del data_dict_spa
+    del data_dict_pli
+
+    del large_event
+    del image
+    del label
+
+    del roi_label
+    del roi_label_clean
+    del roi_comp
+    del roi_label_dilated
+
+    del prediction
+    del reference
+    del coords
+    del probabilities
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # Identify connected components in original CT space.
     component_ids = torch.unique(
-        small_ori["roi"]
-    ).detach().cpu().tolist()
+        data_dict_ori_cpu["roi"]
+    ).tolist()
 
     component_ids = [
         int(value)
@@ -497,13 +645,44 @@ def process_case(
         if value > 0
     ]
 
-    print("High-resolution components:", component_ids)
-
     saved_count = 0
 
+    # --------------------------------------------------------
+    # Crop and resample one component at a time
+    # --------------------------------------------------------
+
+    # Resamplers for the original high-resolution reference grid.
+    resample_image = ResampleToMatch(
+        mode="bilinear",
+        padding_mode="border",
+    )
+
+    resample_label = ResampleToMatch(
+        mode="nearest",
+        padding_mode="border",
+    )
+
+    resample_roi = ResampleToMatch(
+        mode="nearest",
+        padding_mode="border",
+    )
+    
     for component_id in component_ids:
 
-        crop_transform = CropForegroundd(
+        print(f"\nProcessing component {component_id}...")
+
+        # 1. Crop this component in original CT space.
+        original_crop_transform = CropForegroundd(
+            keys=["image", "label", "roi"],
+            source_key="roi",
+            margin=margin_original,
+            return_coords=True,
+            allow_smaller=False,
+            select_fn=lambda x, v=component_id: x == v,
+        )
+
+        # Final crop uses the original pipeline's high-resolution margin.
+        final_crop_transform = CropForegroundd(
             keys=["image", "label", "roi"],
             source_key="roi",
             margin=ROI_MARGIN,
@@ -512,35 +691,114 @@ def process_case(
             select_fn=lambda x, v=component_id: x == v,
         )
 
-        small_ori_copy = copy.deepcopy(small_ori)
-        small_ori_copy = crop_transform(small_ori_copy)
+        component_crop = original_crop_transform(
+            data_dict_ori_cpu
+        )
 
-        if small_ori_copy["image"].numel() == 0:
+        if component_crop["image"].numel() == 0:
             print(
-                f"WARNING: Component {component_id} produced an empty crop."
+                f"WARNING: Component {component_id} "
+                "produced an empty original-space crop."
             )
             continue
 
-        # Move outputs to CPU before saving.
-        for key in ("image", "label", "roi"):
-            small_ori_copy[key] = small_ori_copy[key].cpu()
+        # 2. Reorient to the original pipeline's PLI orientation.
+        component_crop = transforms["orientation"](
+            component_crop
+        )
 
+        # 3. Construct a local destination grid aligned with
+        #    the global high-resolution reference grid.
+        reference_grid, grid_min, grid_max = (
+            create_reference_grid(
+                component_crop["image"],
+                reference_affine,
+            )
+        )
+
+        # 4. Resample actual image data onto the reference grid.
+        component_crop["image"] = resample_image(
+            component_crop["image"],
+            reference_grid,
+        )
+
+        component_crop["label"] = resample_label(
+            component_crop["label"],
+            reference_grid,
+        )
+
+        component_crop["roi"] = resample_roi(
+            component_crop["roi"],
+            reference_grid,
+        )
+
+        del reference_grid
+
+        # 5. Apply the original high-resolution component crop.
+        component_crop = final_crop_transform(
+            component_crop
+        )
+
+        # 6. Validate the resulting tensors.
+        image_shape = tuple(
+            component_crop["image"].shape[1:]
+        )
+        label_shape = tuple(
+            component_crop["label"].shape[1:]
+        )
+        roi_shape = tuple(
+            component_crop["roi"].shape[1:]
+        )
+
+        if not (
+            image_shape == label_shape == roi_shape
+        ):
+            raise RuntimeError(
+                f"{case_id}, component {component_id}: "
+                f"High-resolution shapes differ. "
+                f"Image={image_shape}, "
+                f"Label={label_shape}, ROI={roi_shape}"
+            )
+
+        # Verify that the final crop begins on integer
+        # coordinates of the global reference grid.
+        final_affine = (
+            component_crop["image"]
+            .affine.detach().cpu().numpy()
+        )
+
+        final_start = (
+            np.linalg.inv(reference_affine) @ final_affine
+        )[:3, 3]
+
+        if not np.allclose(
+            final_start,
+            np.round(final_start),
+            atol=1e-4,
+        ):
+            raise RuntimeError(
+                f"{case_id}, component {component_id}: "
+                "Final crop is not aligned with the "
+                "global reference grid."
+            )
+
+        # 7. Save this component.
         out_file = os.path.join(
             output_path,
             f"{case_id}_{component_id}.pt",
         )
 
-        torch.save(small_ori_copy, out_file)
+        torch.save(component_crop, out_file)
 
         saved_count += 1
 
-        print(
-            f"Saved component {component_id}: "
-            f"{out_file}"
-        )
+        print(f"Saved component {component_id}: {out_file}")
 
-    if device.type == "cuda":
-        torch.cuda.empty_cache()
+        del component_crop
+        del original_crop_transform
+
+    # Release the original CPU volume.
+    del data_dict_ori_cpu
 
     print(
         f"Case {case_id} completed. "
@@ -638,13 +896,13 @@ def main():
     )
 
     spacing_small = Spacingd(
-        keys=["image", "label"],
+        keys=["image", "label", "roi"],
         pixdim=HIGHRES_SPACING,
-        mode=("bilinear", "nearest"),
+        mode=("bilinear", "nearest", "nearest"),
     )
 
     orientation = Orientationd(
-        keys=["image", "label"],
+        keys=["image", "label", "roi"],
         axcodes="PLI",
         allow_missing_keys=True,
     )

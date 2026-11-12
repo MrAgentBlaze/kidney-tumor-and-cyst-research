@@ -50,7 +50,7 @@ class SparseDataset(Dataset):
         )
 
         if self.stage2:
-            data = torch.load(path)
+            data = torch.load(path, weights_only=False)
         else:
             with open(path, "rb") as fd:
                 data = pkl.load(fd)

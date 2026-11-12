@@ -13,12 +13,12 @@ python -m train.train \
     --ds_steps 3 \
     --batch_size 1 \
     --folds 5 \
-    --epochs 500 \
-    --num_workers 8 \
+    --epochs 100 \
+    --num_workers 0 \
     --lr 5e-4 \
     --accum_grad_batches 8 \
     --warmup_steps 1 \
-    --cosine_annealing_steps 400 \
+    --cosine_annealing_steps 100 \
     --weight_decay 1e-5 \
     --beta1 0.9 \
     --beta2 0.95 \

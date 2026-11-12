@@ -1,0 +1,30 @@
+STAGE 1 ROI EVALUATION SUMMARY
+================================
+Successfully evaluated cases: 489
+Failed/skipped cases: 0
+ROI threshold: 0.1
+Grid spacing used for boundary distances: (1.99, 1.99, 1.99) mm
+
+Final post-processed ROI metrics (mean +/- sample standard deviation):
+  final_dice: 0.624115 +/- 0.075940 (n=489)
+  final_iou: 0.457251 +/- 0.067240 (n=489)
+  final_precision: 0.464682 +/- 0.059285 (n=486)
+  final_recall: 0.977102 +/- 0.108513 (n=489)
+  final_specificity: 0.989389 +/- 0.005954 (n=489)
+  final_hd95_mm: 26.922277 +/- 35.286725 (n=486)
+  final_assd_mm: 11.310834 +/- 6.121596 (n=486)
+
+Interpretation:
+- These are Stage 1 ROI-localization metrics, with all non-background
+  reference labels combined into one foreground mask.
+- Efficiency is identical to recall: TP / (TP + FN).
+- HD95 and ASSD are in millimetres, calculated on the isotropic 1.99-mm grid.
+- Do not report these ROI metrics as class-wise kidney, tumor, or cyst
+  segmentation scores.
+- The training-log CSV files are plotted separately because they represent
+  separate logger sessions; do not combine them as one continuous run.
+
+Important: this script evaluates predictions against labels stored in
+data/kits23_large_processed. Confirm that this is the intended evaluation
+split and not a training-only split before describing results as held-out
+test performance.
