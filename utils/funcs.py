@@ -1,7 +1,7 @@
 import torch
 import copy
 import MinkowskiEngine as ME
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 from torch.utils.data import Subset, DataLoader
 from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 
@@ -80,27 +80,56 @@ def load_model_from_lightning(model, checkpoint_path, device, strict=False):
 
 def get_k_fold_data_loaders(dataset, args, shuffle=True, random_state=None):
     """Split dataset into K folds and return DataLoaders for each fold."""
-    kfold = KFold(n_splits=args.folds, shuffle=shuffle, random_state=random_state)
+
+    if dataset.stage2:
+        # Keep all ROI crops from the same patient in one fold.
+        groups = [
+            path.split("/")[-1].split("_")[0]
+            for path, _ in dataset.data_files
+        ]
+
+        splitter = GroupKFold(n_splits=args.folds)
+        splits = splitter.split(dataset, groups=groups)
+
+    else:
+        # Preserve the original Stage 1 splitting strategy.
+        splitter = KFold(
+            n_splits=args.folds,
+            shuffle=shuffle,
+            random_state=random_state,
+        )
+        splits = splitter.split(dataset)
+
     data_loaders = []
 
-    for train_indices, val_indices in kfold.split(dataset):
+    for train_indices, val_indices in splits:
         train_subset = Subset(copy.deepcopy(dataset), train_indices)
         train_subset.dataset.training = True
+
         val_subset = Subset(copy.deepcopy(dataset), val_indices)
 
         train_loader = DataLoader(
-            train_subset, batch_size=args.batch_size, num_workers=args.num_workers,
+            train_subset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True if args.num_workers > 0 else False,
-            collate_fn=collate_sparse_minkowski, shuffle=True,
+            persistent_workers=args.num_workers > 0,
+            collate_fn=collate_sparse_minkowski,
+            shuffle=True,
         )
+
         val_loader = DataLoader(
-            val_subset, batch_size=args.batch_size, num_workers=args.num_workers,
+            val_subset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True if args.num_workers > 0 else False,
-            collate_fn=collate_sparse_minkowski, shuffle=False,
+            persistent_workers=args.num_workers > 0,
+            collate_fn=collate_sparse_minkowski,
+            shuffle=False,
         )
+
         data_loaders.append((train_loader, val_loader))
+
     return data_loaders
 
 

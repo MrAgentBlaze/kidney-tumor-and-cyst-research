@@ -68,8 +68,6 @@ def main():
     warmup_steps = args.warmup_steps
 
     for fold, (train_loader, val_loader) in enumerate(fold_loaders):
-        if fold < 4:
-            continue
         print(f"Fold {fold + 1}")
 
         ckpt_dir = os.path.join(
